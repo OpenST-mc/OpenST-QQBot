@@ -8,7 +8,6 @@ import { QqMessageEvent, sendMessage } from '../bot/adapter'
 import { QQ_GROUP_WHITELIST } from '../config'
 import { handleAsk } from './ask'
 import { handleUpload } from './upload'
-import { handleCheck } from './check'
 import { handleLearn } from './learn'
 
 /** 命令处理器：接收事件 + 命令参数，自行回复消息 */
@@ -21,7 +20,6 @@ type CommandHandler = (
 const commandMap: Record<string, CommandHandler> = {
   '/ask': handleAsk,
   '/upload': handleUpload,
-  '/check': handleCheck,
   '/learn': handleLearn,
   '/ping': pingHandler
 }
@@ -53,7 +51,7 @@ async function pingHandler(
 }
 
 /** 命令前缀识别正则 */
-const COMMAND_REGEX = /^\/(ask|upload|check|learn|ping)\b/
+const COMMAND_REGEX = /^\/(ask|upload|learn|ping)\b/
 
 /**
  * 首次收到某群消息时，打印其标识信息以方便配置白名单
