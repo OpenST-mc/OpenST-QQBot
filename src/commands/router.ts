@@ -105,21 +105,23 @@ function isGroupAllowed(event: QqMessageEvent): boolean {
 export async function routeMessage(event: QqMessageEvent): Promise<void> {
   const content = event.content.trim()
   const match = content.match(COMMAND_REGEX)
+
+  // 记录群信息
+  logGroupInfo(event)
+
+  // 非命令消息，静默忽略
   if (!match) {
-    return // 非命令消息，静默忽略
+    return
   }
 
   const commandName = match[0].trim()
-
-  // 记录群信息（首次消息时打印到控制台）
-  logGroupInfo(event)
 
   // 群组白名单检查（/ping 除外，用于诊断）
   if (commandName !== '/ping' && !isGroupAllowed(event)) {
     console.log(
       `[Router] 拦截非白名单群组消息: group_openid=${event.groupOpenid}`
     )
-    return // 静默忽略
+    return
   }
   // 提取命令后面的参数（去掉命令本身）
   const args = content.slice(match[0].length).trim()

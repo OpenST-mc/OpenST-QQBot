@@ -9,6 +9,7 @@ import { handleEvent, registerHandler } from './bot/event'
 import { routeMessage } from './commands/router'
 import { startUploadServer } from './upload/server'
 import { closeBrowser, warmupBrowser } from './services/render'
+import { closeOcr } from './services/attachment'
 
 /**
  * 初始化并启动所有服务
@@ -53,12 +54,14 @@ async function main(): Promise<void> {
 // 优雅退出
 process.on('SIGINT', async () => {
   console.log('[Index] 收到退出信号')
+  await closeOcr()
   await closeBrowser()
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
   console.log('[Index] 收到终止信号')
+  await closeOcr()
   await closeBrowser()
   process.exit(0)
 })

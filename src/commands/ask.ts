@@ -36,6 +36,7 @@ import {
 } from '../services/learn'
 import { AI_AGENT_PROMPT_PATH, SHARE_BASE_URL } from '../config'
 import { renderMarkdownToImage } from '../services/render'
+import { parseAttachments } from '../services/attachment'
 
 /** 不确定性关键词（AI 表示无法回答时的常用措辞） */
 const UNCERTAINTY_PATTERNS = [
@@ -57,7 +58,7 @@ export async function handleAsk(
 ): Promise<void> {
   if (!args) {
     await sendMessage({
-      content: '请在 /ask 后输入你的问题。\n例: /ask 推荐一台生电机器',
+      content: '请在 /ask 后输入你的问题。\n例: /ask 推荐一台生电机器\n也支持先发 /ask 再发文本文件。',
       sourceType: event.sourceType,
       groupOpenid: event.groupOpenid,
       userOpenid: event.author.id,
@@ -71,7 +72,25 @@ export async function handleAsk(
   const history = getContext(event)
   console.log(`[Ask] ${getContextSummary(event)}`)
 
-  // 检查是否有待学习标记：用户之前问了数据库没答案的问题，现在补充了知识
+  // 解析消息中的附件（优先引用消息的附件）
+  let attachmentText = ''
+  const attToParse =
+    event.referencedAttachments.length > 0
+      ? event.referencedAttachments
+      : event.attachments || []
+  if (attToParse.length > 0) {
+    try {
+      attachmentText = await parseAttachments(attToParse)
+      if (attachmentText) {
+        console.log(`[Ask] 附件解析完成: ${attachmentText.length} 字符`)
+      }
+    } catch (err) {
+      const error = err as Error
+      console.warn('[Ask] 附件解析失败:', error.message)
+    }
+  }
+
+  // 检查是否有待学习标记
   const pendingLearn = consumePendingLearn(event)
   if (pendingLearn && args.length > 30) {
     const recentSummary = history
@@ -101,17 +120,6 @@ export async function handleAsk(
   } catch (err) {
     const error = err as Error
     console.warn('[Ask] 字典摘要加载失败:', error.message)
-  }
-
-  // 注入已学知识（database.md）
-  try {
-    const learned = loadLearnedKnowledge()
-    if (learned) {
-      systemPrompt += '\n\n## 已学习的社区知识\n' + learned
-    }
-  } catch (err) {
-    const error = err as Error
-    console.warn('[Ask] 学习知识加载失败:', error.message)
   }
 
   // 匹配术语并拼接到用户问题中
@@ -151,10 +159,30 @@ export async function handleAsk(
   }
 
   // 拼接上下文到用户问题
+  const allParts: string[] = []
   if (contextParts.length > 0) {
+    allParts.push(`参考知识:\n${contextParts.join('\n\n')}`)
+  }
+  // 已学知识匹配（database.md）
+  try {
+    const learned = searchLearnedKnowledge(args)
+    if (learned) {
+      allParts.push(`以下是从社区学到的相关知识:\n\n${learned}`)
+    }
+  } catch (err) {
+    const error = err as Error
+    console.warn('[Ask] 学习知识检索失败:', error.message)
+  }
+  if (allParts.length > 0) {
     enrichedPrompt =
-      `用户问题: ${args}\n\n` +
-      `参考知识:\n${contextParts.join('\n\n')}`
+      `用户问题: ${args}\n\n` + allParts.join('\n\n')
+  }
+  // 附件内容直接追加到用户问题末尾
+  if (attachmentText) {
+    enrichedPrompt = enrichedPrompt
+      ? `${enrichedPrompt}\n\n---\n${attachmentText}`
+      : `${args}\n\n---\n${attachmentText}`
+    console.log(`[Ask] 附件已注入 prompt，内容前100字: ${attachmentText.slice(0, 100)}`)
   }
 
   // 加载本地机器数据库，并按查询匹配候选机器
@@ -288,29 +316,76 @@ async function sendTextFallback(
 const LEARN_PATH = 'public/database/database.md'
 
 /**
- * 加载 database.md 中的已学习知识
- * 去除非知识行（标题、注释等），截断过长的内容
+ * 按用户查询关键词搜索 database.md 中的匹配条目
+ * 按 --- 分割条目，匹配度高的优先，返回 top 3
  */
-function loadLearnedKnowledge(): string {
+function searchLearnedKnowledge(query: string): string {
   if (!fs.existsSync(LEARN_PATH)) {
     return ''
   }
   const raw = fs.readFileSync(LEARN_PATH, 'utf-8')
-  // 去掉 HTML 注释行和时间戳标记
-  const cleaned = raw
-    .replace(/<!--.*?-->/g, '')
-    .replace(/^# .*$/gm, '')
-    .replace(/> .*$/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
 
-  if (!cleaned) {
+  // 按 --- 分割为条目，但跳过 frontmatter 中的 ---（紧随 title/tags 行后的）
+  const sections = raw.split(/\n---\n/)
+  if (sections.length <= 1) {
     return ''
   }
 
-  // 限制注入 prompt 的长度，避免 token 超限
-  if (cleaned.length > 3000) {
-    return cleaned.slice(0, 2990) + '\n\n...(知识库内容已截断)'
+  const lowerQuery = query.toLowerCase()
+  const scored: Array<{ text: string; score: number }> = []
+  for (let i = 1; i < sections.length; i++) {
+    let section = sections[i]
+
+    // 如果前一个 section 以文件头结束且当前是 title 行，说明是 frontmatter
+    // 这种情况合并回前一个 section
+    if (section.startsWith('title:') || section.startsWith('tags:')) {
+      continue // frontmatter 行，随上一个 section 一起被跳过
+    }
+
+    // 清除注释
+    const cleaned = section
+      .replace(/<!--.*?-->/g, '')
+      .trim()
+    if (!cleaned) continue
+    if (cleaned.startsWith('> ')) continue
+
+    // 去除附件上传的提示头和图片引用
+    const readable = cleaned
+      .replace(/^\[附件内容\]\s*/gm, '')
+      .replace(/^以下为用户上传的.*?的内容:\s*$/gm, '')
+      .replace(/!\[.*?\]\(.*?\)/g, '')          // 去掉 ![](...) 图片引用
+      .replace(/title:.*\n?/g, '')               // 去掉 frontmatter title
+      .replace(/tags:.*\n?/g, '')                // 去掉 frontmatter tags
+      .replace(/^\s*-{3,}\s*$/gm, '')            // 去掉残余的单独 --- 行
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    if (!readable) continue
+
+    // 按关键词匹配打分
+    const lowerSec = readable.toLowerCase()
+    let score = 0
+    const words = lowerQuery.split(/[\s,，。！？、]+/).filter(w => w.length > 1)
+    for (const w of words) {
+      if (lowerSec.includes(w)) score += 3
+    }
+
+    if (score > 0) {
+      scored.push({ text: readable, score })
+    }
   }
-  return cleaned
+
+  if (scored.length === 0) {
+    return ''
+  }
+
+  // 按分数降序取 top 3
+  scored.sort((a, b) => b.score - a.score)
+  const top = scored.slice(0, 3)
+  const result = top.map((s) => s.text).join('\n\n---\n\n')
+
+  console.log(
+    `[Ask] 学习知识匹配: ${top.length} 条` +
+    `（最高分 ${top[0].score}），共 ${result.length} 字符`
+  )
+  return result
 }

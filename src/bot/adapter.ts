@@ -25,6 +25,22 @@ export interface QqMessageEvent {
   timestamp: string
   /** 消息来源类型：私聊 / 群聊 / 频道 */
   sourceType: 'c2c' | 'group' | 'channel'
+  /** 本消息的附件列表 */
+  attachments: QqAttachment[]
+  /** 被引用消息的附件列表（回复/引用消息时） */
+  referencedAttachments: QqAttachment[]
+}
+
+/** 附件信息 */
+export interface QqAttachment {
+  /** 附件 URL（用于下载） */
+  url: string
+  /** 内容类型，如 image/png, image/jpeg */
+  contentType: string
+  /** 文件名 */
+  filename?: string
+  /** 文件大小（字节） */
+  size?: number
 }
 
 /** 发送消息的参数 */
@@ -300,7 +316,6 @@ export function startWebSocket(onEvent: EventHandler): void {
       eventType === 'MESSAGE_CREATE'
     ) {
       const authorData = (data['author'] || {}) as Record<string, unknown>
-      // 群聊事件用 group_openid，频道事件用 guild_id/channel_id
       const groupOpenid = String(data['group_openid'] || '')
       const groupId = String(data['group_id'] || '')
       const channelId = String(data['channel_id'] || '')
@@ -312,6 +327,33 @@ export function startWebSocket(onEvent: EventHandler): void {
         sourceType = 'c2c'
       } else if (guildId || (channelId && !groupOpenid)) {
         sourceType = 'channel'
+      }
+
+      // 解析 msg_elements：提取附件和引用消息的附件
+      const msgElems = (data['msg_elements'] || []) as Array<Record<string, unknown>>
+      let attachments: QqAttachment[] = []
+      let referencedAttachments: QqAttachment[] = []
+
+      for (const elem of msgElems) {
+        const elemAtt = (
+          elem['attachments'] || elem['attachment'] || []
+        ) as Array<Record<string, unknown>>
+        if (elemAtt.length === 0) {
+          continue
+        }
+        const parsed: QqAttachment[] = elemAtt.map((att) => ({
+          url: String(att['url'] || ''),
+          contentType: String(att['content_type'] || 'application/octet-stream'),
+          filename: String(att['filename'] || ''),
+          size: Number(att['size'] || 0)
+        }))
+        // 带 msg_idx 的元素是被引用的消息，其余的是本消息附件
+        if (elem['msg_idx'] !== undefined) {
+          referencedAttachments = [...referencedAttachments, ...parsed]
+          console.log(`[Adapter] 引用消息附件: ${parsed.length} 个`)
+        } else {
+          attachments = [...attachments, ...parsed]
+        }
       }
 
       return {
@@ -326,7 +368,9 @@ export function startWebSocket(onEvent: EventHandler): void {
         groupOpenid: groupOpenid || undefined,
         groupId: groupId || undefined,
         timestamp: String(data['timestamp'] || ''),
-        sourceType: sourceType
+        sourceType: sourceType,
+        attachments: attachments,
+        referencedAttachments: referencedAttachments
       }
     }
 
@@ -447,6 +491,8 @@ export function startWebSocket(onEvent: EventHandler): void {
 
   connect()
 }
+
+export { getAccessToken }
 
 /**
  * 启动时做一次连通性检查：获取 token -> 拉网关

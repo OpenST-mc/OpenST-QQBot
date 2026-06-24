@@ -28,11 +28,9 @@ export interface PendingLearn {
 /** 单个用户的上下文 */
 interface UserContext {
   userId: string
-  /** 用户标识名（用于日志） */
   username: string
   messages: ContextMessage[]
   lastActivity: number
-  /** 是否等待用户补充知识 */
   pendingLearn: PendingLearn | null
 }
 
