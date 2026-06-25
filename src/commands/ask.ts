@@ -21,7 +21,7 @@ import {
   searchMachines,
   MachineEntry
 } from '../services/data'
-import { matchDictionaryTerms, getAllTermSummaries } from '../services/dictionary'
+import { matchDictionaryTerms } from '../services/dictionary'
 import {
   getContext,
   appendContext,
@@ -109,17 +109,6 @@ export async function handleAsk(
     systemPrompt = fs.readFileSync(AI_AGENT_PROMPT_PATH, 'utf-8')
   } catch {
     console.warn('[Ask] 未找到 agent/AGENTS.md，使用默认提示词')
-  }
-
-  // 注入字典知识库摘要到系统提示词
-  try {
-    const summaries = getAllTermSummaries()
-    if (summaries) {
-      systemPrompt += '\n\n' + summaries
-    }
-  } catch (err) {
-    const error = err as Error
-    console.warn('[Ask] 字典摘要加载失败:', error.message)
   }
 
   // 匹配术语并拼接到用户问题中
@@ -313,64 +302,47 @@ async function sendTextFallback(
 }
 
 /** 学习知识库路径 */
-const LEARN_PATH = 'public/database/database.md'
+const LEARN_PATH = 'public/database/database.csv'
 
 /**
- * 按用户查询关键词搜索 database.md 中的匹配条目
- * 按 --- 分割条目，匹配度高的优先，返回 top 3
+ * 按用户查询关键词搜索 database.csv 中的匹配条目
+ * 读取 CSV（topic,content 格式），匹配度高的优先，返回 top 3
  */
 function searchLearnedKnowledge(query: string): string {
   if (!fs.existsSync(LEARN_PATH)) {
     return ''
   }
   const raw = fs.readFileSync(LEARN_PATH, 'utf-8')
-
-  // 按 --- 分割为条目，但跳过 frontmatter 中的 ---（紧随 title/tags 行后的）
-  const sections = raw.split(/\n---\n/)
-  if (sections.length <= 1) {
+  const lines = raw.split('\n')
+  if (lines.length < 2) {
     return ''
   }
 
   const lowerQuery = query.toLowerCase()
   const scored: Array<{ text: string; score: number }> = []
-  for (let i = 1; i < sections.length; i++) {
-    let section = sections[i]
 
-    // 如果前一个 section 以文件头结束且当前是 title 行，说明是 frontmatter
-    // 这种情况合并回前一个 section
-    if (section.startsWith('title:') || section.startsWith('tags:')) {
-      continue // frontmatter 行，随上一个 section 一起被跳过
-    }
+  // 简易 CSV 解析：跳过表头，按行解析 topic,content
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
 
-    // 清除注释
-    const cleaned = section
-      .replace(/<!--.*?-->/g, '')
-      .trim()
-    if (!cleaned) continue
-    if (cleaned.startsWith('> ')) continue
+    // 解析 CSV 行（支持引号包裹）
+    const row = parseSimpleCsvLine(line)
+    if (!row || row.length < 2) continue
+    const topic = row[0]
+    const content = row[1]
 
-    // 去除附件上传的提示头和图片引用
-    const readable = cleaned
-      .replace(/^\[附件内容\]\s*/gm, '')
-      .replace(/^以下为用户上传的.*?的内容:\s*$/gm, '')
-      .replace(/!\[.*?\]\(.*?\)/g, '')          // 去掉 ![](...) 图片引用
-      .replace(/title:.*\n?/g, '')               // 去掉 frontmatter title
-      .replace(/tags:.*\n?/g, '')                // 去掉 frontmatter tags
-      .replace(/^\s*-{3,}\s*$/gm, '')            // 去掉残余的单独 --- 行
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-    if (!readable) continue
+    const combined = `${topic}\n${content}`
+    const lowerCombined = combined.toLowerCase()
 
-    // 按关键词匹配打分
-    const lowerSec = readable.toLowerCase()
     let score = 0
     const words = lowerQuery.split(/[\s,，。！？、]+/).filter(w => w.length > 1)
     for (const w of words) {
-      if (lowerSec.includes(w)) score += 3
+      if (lowerCombined.includes(w)) score += 3
     }
 
     if (score > 0) {
-      scored.push({ text: readable, score })
+      scored.push({ text: combined, score })
     }
   }
 
@@ -378,7 +350,6 @@ function searchLearnedKnowledge(query: string): string {
     return ''
   }
 
-  // 按分数降序取 top 3
   scored.sort((a, b) => b.score - a.score)
   const top = scored.slice(0, 3)
   const result = top.map((s) => s.text).join('\n\n---\n\n')
@@ -388,4 +359,40 @@ function searchLearnedKnowledge(query: string): string {
     `（最高分 ${top[0].score}），共 ${result.length} 字符`
   )
   return result
+}
+
+/**
+ * 简易 CSV 行解析（支持引号内逗号和转义引号）
+ */
+function parseSimpleCsvLine(line: string): string[] | null {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"'
+          i++ // skip escaped quote
+        } else {
+          inQuotes = false
+        }
+      } else {
+        current += ch
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true
+      } else if (ch === ',') {
+        result.push(current)
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+  }
+  result.push(current)
+  return result.length >= 2 ? result : null
 }
