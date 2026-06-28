@@ -64,7 +64,7 @@
 |------|------|
 | `public/database/database.json` | 机器数据库（只读） |
 | `public/database/TechMC Glossary.csv` | 术语词汇表 |
-| `public/database/database.csv` | 社区学习知识库（自动追加） |
+| `public/database/database.csv` | 统一知识库（社区学习+GTMC文档+术语词汇，`/ask` 语义搜索来源） |
 | `agent/AGENTS.md` | AI 系统提示词（给 DeepSeek 的行为规则） |
 | `public/database/dictionary/` | 存储技术词典（config.json + entries/ + zh-translations.json） |
 

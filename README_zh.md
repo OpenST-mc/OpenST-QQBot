@@ -6,12 +6,12 @@ OpenST Minecraft 存储技术社区的模块化 QQ Bot。TypeScript 构建，Dee
 
 ## 功能
 
-- `/ask` -- AI 问答，支持存储技术词典匹配和机器推荐
+- `/ask` -- AI 问答，支持 Sentence-BERT 语义搜索和机器推荐
 - `/learn` -- 社区知识共享，自动存入本地知识库
 - `/upload` -- 机器投影上传，自动转 webp 并生成元数据
 - `/ping` -- 连通性测试和群组 ID 诊断
 - 用户独立对话上下文，多轮记忆互不干扰
-- Markdown 回复渲染为图片发送（Puppeteer）
+- Markdown 回复通过 QQ 原生 Markdown API 直接发送（`msg_type=2`）
 - 图片 OCR 支持（Tesseract.js）
 - 附件解析（引用消息中的文本文件和图片）
 - 群组白名单访问控制
@@ -75,7 +75,6 @@ src/
     router.ts       命令注册与路由
     ask.ts          /ask 命令处理
     upload.ts       /upload 命令处理
-    check.ts        /check 命令处理
     learn.ts        /learn 命令处理
   services/
     ai.ts           DeepSeek AI 服务
@@ -83,7 +82,7 @@ src/
     dictionary.ts   存储技术词典加载
     context.ts      用户独立上下文管理
     learn.ts        自动学习服务
-    render.ts       Markdown 渲染为图片（Puppeteer）
+    embeddings.ts   Sentence-BERT 语义搜索引擎
     attachment.ts   文件下载和 OCR（Tesseract.js）
   upload/
     config.ts       上传分类配置
@@ -92,9 +91,12 @@ agent/
   AGENTS.md         AI 系统提示词
 public/
   database/
-    database.json   机器数据库
-    database.md     社区学习知识库
-    TechMC Glossary.csv  术语词汇表
+    database.json   机器数据库（关键词匹配）
+    database.csv    统一知识库（社区+GTMC+词汇表）
+    database.md     社区学习知识库（源文件）
+    TechMC Glossary.csv  术语词汇表（源文件）
+    dictionary/     存储技术词典条目+翻译
+    gtmc-database/  GTMC 参考文档（源文件）
 ```
 
 ## 许可证
