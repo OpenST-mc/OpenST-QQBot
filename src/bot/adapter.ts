@@ -159,6 +159,56 @@ export async function sendMessage(params: SendMessageParams): Promise<void> {
   }
 }
 
+/** Markdown 消息参数 */
+export interface SendMarkdownParams {
+  markdownContent: string
+  messageId?: string
+  userOpenid?: string
+  channelId?: string
+  groupOpenid?: string
+  sourceType: 'c2c' | 'group' | 'channel'
+}
+
+/**
+ * 发送 Markdown 消息
+ * 使用 msg_type=2，支持标题、加粗、链接等 Markdown 语法
+ */
+export async function sendMarkdown(params: SendMarkdownParams): Promise<void> {
+  const token = await getAccessToken()
+  const headers = {
+    'Authorization': `QQBot ${token}`,
+    'Content-Type': 'application/json'
+  }
+
+  let url = ''
+  const body: Record<string, unknown> = {
+    msg_type: 2,
+    markdown: { content: params.markdownContent }
+  }
+
+  if (params.sourceType === 'group' && params.groupOpenid) {
+    url = `${QQ_API_BASE}/v2/groups/${params.groupOpenid}/messages`
+    if (params.messageId) body['msg_id'] = params.messageId
+    body['msg_seq'] = nextMsgSeq(params.groupOpenid)
+  } else if (params.sourceType === 'c2c' && params.userOpenid) {
+    url = `${QQ_API_BASE}/v2/users/${params.userOpenid}/messages`
+    if (params.messageId) body['msg_id'] = params.messageId
+    body['msg_seq'] = nextMsgSeq(params.userOpenid)
+  } else if (params.sourceType === 'channel' && params.channelId) {
+    url = `${QQ_API_BASE}/channels/${params.channelId}/messages`
+  }
+
+  try {
+    await axios.post(url, body, { headers })
+  } catch (err) {
+    const error = err as Error & { response?: { data: unknown } }
+    console.error('[Adapter] Markdown 消息发送失败:', error.message)
+    if (error.response) {
+      console.error('[Adapter] 响应详情:', JSON.stringify(error.response.data))
+    }
+  }
+}
+
 /** 图片消息参数 */
 export interface SendImageParams {
   /** 图片 Buffer */

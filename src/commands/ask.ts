@@ -2,7 +2,7 @@
  * /ask 命令处理器
  * 流程：
  * 1. 加载该用户的独立对话上下文 + 检查待学习标记
- * 2. 匹配字典术语（src/dictionary）+ CSV 词汇表
+ * 2. 匹配字典术语（public/database/dictionary）+ CSV 词汇表
  * 3. 将字典摘要注入 AI 系统提示词
  * 4. 读取 agent/AGENTS.md 作为 AI 行为规则
  * 5. 从本地 public/database/database.json 读取机器数据，按查询匹配候选机器
@@ -12,16 +12,16 @@
  * 9. 保存本轮对话到用户上下文
  */
 import fs from 'fs'
-import { QqMessageEvent, sendMessage, sendImage } from '../bot/adapter'
+import { QqMessageEvent, sendMessage, sendMarkdown } from '../bot/adapter'
 import { askAiWithRecommendations } from '../services/ai'
 import {
   loadGlossary,
-  matchGlossaryTerms,
   loadMachineDatabase,
   searchMachines,
   MachineEntry
 } from '../services/data'
-import { matchDictionaryTerms } from '../services/dictionary'
+import { getAllZhEntries } from '../services/dictionary'
+import { buildKnowledgeIndex, searchKnowledge, KnowledgeEntry } from '../services/embeddings'
 import {
   getContext,
   appendContext,
@@ -35,7 +35,6 @@ import {
   isLearnableMessage
 } from '../services/learn'
 import { AI_AGENT_PROMPT_PATH, SHARE_BASE_URL } from '../config'
-import { renderMarkdownToImage } from '../services/render'
 import { parseAttachments } from '../services/attachment'
 
 /** 不确定性关键词（AI 表示无法回答时的常用措辞） */
@@ -111,61 +110,50 @@ export async function handleAsk(
     console.warn('[Ask] 未找到 agent/AGENTS.md，使用默认提示词')
   }
 
-  // 匹配术语并拼接到用户问题中
+  // 构建知识库索引并语义匹配
   let enrichedPrompt = args
-  const contextParts: string[] = []
-
-  // CSV 词汇表匹配
+  let matchedKnowledge: Array<KnowledgeEntry & { score: number }> = []
   try {
+    const entries: KnowledgeEntry[] = []
+
+    // 1. 词汇表（TechMC Glossary.csv）
     const glossary = loadGlossary()
-    const matched = matchGlossaryTerms(args, glossary)
-    if (matched.length > 0) {
-      const glossaryInfo = matched
-        .map((e) => `[词汇] ${e.term}: ${e.definition}`)
-        .join('\n')
-      contextParts.push(glossaryInfo)
+    for (const g of glossary) {
+      entries.push({ source: 'glossary', label: g.term, text: g.definition })
+    }
+
+    // 2. 词典（public/database/dictionary/）
+    const dictEntries = getAllZhEntries()
+    for (const d of dictEntries) {
+      entries.push({ source: 'dictionary', label: d.label, text: d.text })
+    }
+
+    // 3. 已学知识（database.csv）
+    const learned = loadLearnedKnowledge()
+    for (const l of learned) {
+      entries.push({ source: 'learned', label: l.topic, text: l.content })
+    }
+
+    // 构建语义索引并搜索
+    if (entries.length > 0) {
+      await buildKnowledgeIndex(entries)
+      matchedKnowledge = await searchKnowledge(args, 5)
     }
   } catch (err) {
     const error = err as Error
-    console.warn('[Ask] 词汇表加载失败:', error.message)
+    console.warn('[Ask] 知识库语义搜索失败:', error.message)
   }
 
-  // 字典词条匹配（Storage Tech Dictionary）
-  try {
-    const dictEntries = matchDictionaryTerms(args)
-    if (dictEntries.length > 0) {
-      const dictInfo = dictEntries
-        .map(
-          (e) =>
-            `[词典] ${e.termsZh} (${e.terms.join(' / ')}):\n${e.definitionZh}`
-        )
-        .join('\n\n')
-      contextParts.push(dictInfo)
-    }
-  } catch (err) {
-    const error = err as Error
-    console.warn('[Ask] 字典匹配失败:', error.message)
+  // 拼接待匹配知识到 prompt
+  if (matchedKnowledge.length > 0) {
+    const formatted = matchedKnowledge.map((m) => {
+      const tag = m.source === 'glossary' ? '词汇' : m.source === 'dictionary' ? '词典' : '知识'
+      return `[${tag}] ${m.label}:\n${m.text}`
+    })
+    enrichedPrompt = `用户问题: ${args}\n\n参考知识:\n${formatted.join('\n\n')}`
+    console.log(`[Ask] 语义知识匹配: ${matchedKnowledge.length} 条, top1=${matchedKnowledge[0].label} (score=${matchedKnowledge[0].score.toFixed(4)})`)
   }
 
-  // 拼接上下文到用户问题
-  const allParts: string[] = []
-  if (contextParts.length > 0) {
-    allParts.push(`参考知识:\n${contextParts.join('\n\n')}`)
-  }
-  // 已学知识匹配（database.md）
-  try {
-    const learned = searchLearnedKnowledge(args)
-    if (learned) {
-      allParts.push(`以下是从社区学到的相关知识:\n\n${learned}`)
-    }
-  } catch (err) {
-    const error = err as Error
-    console.warn('[Ask] 学习知识检索失败:', error.message)
-  }
-  if (allParts.length > 0) {
-    enrichedPrompt =
-      `用户问题: ${args}\n\n` + allParts.join('\n\n')
-  }
   // 附件内容直接追加到用户问题末尾
   if (attachmentText) {
     enrichedPrompt = enrichedPrompt
@@ -174,7 +162,7 @@ export async function handleAsk(
     console.log(`[Ask] 附件已注入 prompt，内容前100字: ${attachmentText.slice(0, 100)}`)
   }
 
-  // 加载本地机器数据库，并按查询匹配候选机器
+  // 加载本地机器数据库，按关键词匹配候选机器（不依赖 Sentence-BERT）
   let machines: MachineEntry[] = []
   let matchedMachines: MachineEntry[] = []
   try {
@@ -182,7 +170,7 @@ export async function handleAsk(
     matchedMachines = searchMachines(args, machines)
   } catch (err) {
     const error = err as Error
-    console.warn('[Ask] 机器数据库加载失败:', error.message)
+    console.warn('[Ask] 机器数据库匹配失败:', error.message)
   }
 
   // 调用 AI（传入该用户的历史上下文）
@@ -194,14 +182,12 @@ export async function handleAsk(
     history
   )
 
-  // 构建回复：AI 回答 + 推荐链接（保留完整 Markdown）
+  // 构建回复：AI 回答 + 推荐链接（完整 Markdown，QQ 原生支持）
   let reply = aiResult.answer
-  let linksText = ''
   if (aiResult.recommendations && aiResult.recommendations.length > 0) {
     reply += '\n\n---\n## 推荐链接\n'
     for (const subId of aiResult.recommendations) {
       reply += `- [${SHARE_BASE_URL}${subId}](${SHARE_BASE_URL}${subId})\n`
-      linksText += `${SHARE_BASE_URL}${subId}\n`
     }
   }
 
@@ -230,69 +216,9 @@ export async function handleAsk(
   // 保存本轮对话到用户上下文
   appendContext(event, args, reply)
 
-  // 渲染 Markdown 为图片并发送（仅群聊和私聊支持图片）
-  if (event.sourceType !== 'channel') {
-    try {
-      const imageBuffer = await renderMarkdownToImage(reply)
-      await sendImage({
-        imageBuffer,
-        sourceType: event.sourceType,
-        groupOpenid: event.groupOpenid,
-        userOpenid: event.author.id,
-        messageId: event.id
-      })
-
-      // 追发可点击链接
-      if (linksText) {
-        await sendMessage({
-          content: '链接:\n' + linksText.trim(),
-          sourceType: event.sourceType,
-          groupOpenid: event.groupOpenid,
-          userOpenid: event.author.id,
-          channelId: event.channelId,
-          messageId: event.id
-        })
-      }
-    } catch (renderErr) {
-      // 渲染或发送失败，回退文字
-      const error = renderErr as Error
-      console.error('[Ask] 图片发送失败，回退文字:', error.message)
-      await sendTextFallback(event, aiResult.answer, linksText)
-    }
-  } else {
-    await sendTextFallback(event, aiResult.answer, linksText)
-  }
-}
-
-/**
- * 文字回退发送
- */
-async function sendTextFallback(
-  event: QqMessageEvent,
-  answer: string,
-  links: string
-): Promise<void> {
-  // 去掉 AI 回复中的 Markdown 标记，链接转为纯 URL
-  let content = answer
-    .replace(/\[([^\]]*)\]\(([^)]+)\)/g, '$2')   // [text](url) → url
-    .replace(/\*\*(.+?)\*\*/g, '$1')              // **bold** → bold
-    .replace(/`([^`]+)`/g, '$1')                  // `code` → code
-    .replace(/^#{1,6}\s+/gm, '')                  // ## heading → heading
-    .replace(/^---+\s*$/gm, '')                   // --- → 空
-    .replace(/^>\s?/gm, '')                       // > quote
-    .replace(/~~(.+?)~~/g, '$1')                  // ~~strike~~
-    .replace(/\n{4,}/g, '\n\n')                   // 多余空行
-    .trim()
-
-  if (links) {
-    content += '\n\n链接:\n' + links.trim()
-  }
-  // QQ 文本消息限制 4000
-  if (content.length > 4000) {
-    content = content.slice(0, 3990) + '\n...(已截断)'
-  }
-  await sendMessage({
-    content,
+  // 直接发送 Markdown（QQ 原生支持）
+  await sendMarkdown({
+    markdownContent: reply,
     sourceType: event.sourceType,
     groupOpenid: event.groupOpenid,
     userOpenid: event.author.id,
@@ -301,63 +227,26 @@ async function sendTextFallback(
   })
 }
 
-/** 学习知识库路径 */
-const LEARN_PATH = 'public/database/database.csv'
-
 /**
- * 按用户查询关键词搜索 database.csv 中的匹配条目
- * 读取 CSV（topic,content 格式），匹配度高的优先，返回 top 3
+ * 加载已学知识库（database.csv），返回 topic,content 列表
  */
-function searchLearnedKnowledge(query: string): string {
-  if (!fs.existsSync(LEARN_PATH)) {
-    return ''
-  }
-  const raw = fs.readFileSync(LEARN_PATH, 'utf-8')
+function loadLearnedKnowledge(): Array<{ topic: string; content: string }> {
+  const path = 'public/database/database.csv'
+  if (!fs.existsSync(path)) return []
+
+  const raw = fs.readFileSync(path, 'utf-8')
   const lines = raw.split('\n')
-  if (lines.length < 2) {
-    return ''
-  }
+  if (lines.length < 2) return []
 
-  const lowerQuery = query.toLowerCase()
-  const scored: Array<{ text: string; score: number }> = []
-
-  // 简易 CSV 解析：跳过表头，按行解析 topic,content
+  const result: Array<{ topic: string; content: string }> = []
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-
-    // 解析 CSV 行（支持引号包裹）
     const row = parseSimpleCsvLine(line)
-    if (!row || row.length < 2) continue
-    const topic = row[0]
-    const content = row[1]
-
-    const combined = `${topic}\n${content}`
-    const lowerCombined = combined.toLowerCase()
-
-    let score = 0
-    const words = lowerQuery.split(/[\s,，。！？、]+/).filter(w => w.length > 1)
-    for (const w of words) {
-      if (lowerCombined.includes(w)) score += 3
-    }
-
-    if (score > 0) {
-      scored.push({ text: combined, score })
+    if (row && row.length >= 2) {
+      result.push({ topic: row[0], content: row[1] })
     }
   }
-
-  if (scored.length === 0) {
-    return ''
-  }
-
-  scored.sort((a, b) => b.score - a.score)
-  const top = scored.slice(0, 3)
-  const result = top.map((s) => s.text).join('\n\n---\n\n')
-
-  console.log(
-    `[Ask] 学习知识匹配: ${top.length} 条` +
-    `（最高分 ${top[0].score}），共 ${result.length} 字符`
-  )
   return result
 }
 
@@ -375,7 +264,7 @@ function parseSimpleCsvLine(line: string): string[] | null {
       if (ch === '"') {
         if (i + 1 < line.length && line[i + 1] === '"') {
           current += '"'
-          i++ // skip escaped quote
+          i++
         } else {
           inQuotes = false
         }

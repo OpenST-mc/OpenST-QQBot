@@ -1,6 +1,6 @@
 /**
  * 专业术语知识库服务
- * 加载 src/dictionary/config.json + entries/ + zh-translations.json
+ * 加载 public/database/dictionary/config.json + entries/ + zh-translations.json
  * 用于 AI prompt 术语匹配与中文知识注入
  */
 import fs from 'fs'
@@ -35,8 +35,8 @@ let entryConfigs: EntryConfig[] | null = null
 let zhEntries: ZhEntry[] | null = null
 
 /** 路径常量 */
-const CONFIG_PATH = path.join('src', 'dictionary', 'config.json')
-const ZH_PATH = path.join('src', 'dictionary', 'zh-translations.json')
+const CONFIG_PATH = path.join('public', 'database', 'dictionary', 'config.json')
+const ZH_PATH = path.join('public', 'database', 'dictionary', 'zh-translations.json')
 
 /**
  * 加载 config.json 词条索引
@@ -126,6 +126,17 @@ export function matchDictionaryTerms(userInput: string): DictionaryEntry[] {
   }
 
   return Array.from(matched.values())
+}
+
+/**
+ * 获取所有中文词典条目（不含匹配逻辑）
+ */
+export function getAllZhEntries(): Array<{ label: string; text: string }> {
+  const zhList = loadZhEntries()
+  return zhList.map((z) => ({
+    label: z.termsZh || z.terms[0],
+    text: z.definitionZh
+  }))
 }
 
 /** 所有词条摘要缓存 */

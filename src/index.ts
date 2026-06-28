@@ -8,8 +8,8 @@ import { startWebSocket, healthCheck } from './bot/adapter'
 import { handleEvent, registerHandler } from './bot/event'
 import { routeMessage } from './commands/router'
 import { startUploadServer } from './upload/server'
-import { closeBrowser, warmupBrowser } from './services/render'
 import { closeOcr } from './services/attachment'
+import { warmupEmbedding } from './services/embeddings'
 
 /**
  * 初始化并启动所有服务
@@ -34,8 +34,8 @@ async function main(): Promise<void> {
   // 启动上传页面服务
   startUploadServer()
 
-  // 预热图片渲染浏览器
-  warmupBrowser()
+  // 预热语义搜索模型（Sentence-BERT，首次需下载 ~470MB）
+  warmupEmbedding()
 
   // 启动前做连通性检查：获取 token -> 拉网关
   const ok = await healthCheck()
@@ -55,14 +55,12 @@ async function main(): Promise<void> {
 process.on('SIGINT', async () => {
   console.log('[Index] 收到退出信号')
   await closeOcr()
-  await closeBrowser()
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
   console.log('[Index] 收到终止信号')
   await closeOcr()
-  await closeBrowser()
   process.exit(0)
 })
 
