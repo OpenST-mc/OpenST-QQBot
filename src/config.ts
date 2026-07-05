@@ -10,13 +10,26 @@ export const QQ_APP_SECRET = process.env['QQ_APP_SECRET'] || ''
 /**
  * 群组白名单（逗号分隔的 QQ 群号或 group_openid）
  * 仅白名单内的群可使用 bot 命令，空白则不限制
- * 私聊不受白名单影响
  * 在目标群发 /ping 可获取 group_openid 和 group_id
  */
-export const QQ_GROUP_WHITELIST = parseGroupWhitelist()
+export const QQ_GROUP_WHITELIST = parseCsvSet('QQ_GROUP_WHITELIST')
 
-function parseGroupWhitelist(): Set<string> {
-  const raw = process.env['QQ_GROUP_WHITELIST'] || ''
+/**
+ * 用户白名单（逗号分隔的用户 openid）
+ * 仅白名单内的用户可在私聊中使用 bot 命令，空白则不限制
+ * 向 bot 私发 /ping 可获取自己的 user openid
+ */
+export const QQ_USER_WHITELIST = parseCsvSet('QQ_USER_WHITELIST')
+
+/**
+ * /learn 命令专用白名单（逗号分隔的群号/group_openid/用户 openid）
+ * 独立于通用白名单，仅控制 /learn 命令的使用权限
+ * 空白则不限制
+ */
+export const QQ_LEARN_WHITELIST = parseCsvSet('QQ_LEARN_WHITELIST')
+
+function parseCsvSet(envKey: string): Set<string> {
+  const raw = process.env[envKey] || ''
   if (!raw.trim()) {
     return new Set()
   }
