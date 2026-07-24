@@ -35,7 +35,7 @@ async function main(): Promise<void> {
   startUploadServer()
 
   // 预热语义搜索模型（Sentence-BERT，首次需下载 ~470MB）
-  warmupEmbedding()
+  await warmupEmbedding()
 
   // 启动前做连通性检查：获取 token -> 拉网关
   const ok = await healthCheck()

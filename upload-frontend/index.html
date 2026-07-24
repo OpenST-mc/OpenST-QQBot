@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenST 机器投递</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container" id="app">
+
+  <!-- 无 token 状态 -->
+  <div id="noToken" style="display:none;text-align:center;padding:80px 0">
+    <div style="font-size:48px;margin-bottom:16px">&#128274;</div>
+    <h2 style="color:#fff;margin-bottom:8px">无效访问</h2>
+    <p style="color:#9ca3af;font-size:14px">
+      请通过 QQ Bot 获取有效上传链接
+    </p>
+  </div>
+
+  <!-- 正常表单 -->
+  <div id="formSection" style="display:none">
+    <h1>机器存档投递</h1>
+    <p class="subtitle">Submission Portal</p>
+
+    <form id="uploadForm" enctype="multipart/form-data">
+
+      <!-- 文件上传 -->
+      <div class="form-grid">
+        <div class="file-upload" id="previewZone">
+          <div class="icon">&#x1F5BC;</div>
+          <div class="label placeholder" id="previewLabel">选择预览图</div>
+          <input type="file" name="preview" id="previewInput" accept="image/*" required>
+        </div>
+        <div class="file-upload" id="litematicZone">
+          <div class="icon">&#x1F4E6;</div>
+          <div class="label placeholder" id="litematicLabel">选择存档文件</div>
+          <input type="file" name="litematic" id="litematicInput"
+                 accept=".litematic,.zip" required>
+        </div>
+      </div>
+
+      <!-- 基本信息 -->
+      <div class="field-row">
+        <div class="field">
+          <label>作品名称</label>
+          <input type="text" name="name" id="nameInput" required placeholder="机器名称">
+        </div>
+        <div class="field">
+          <label>你的名称</label>
+          <input type="text" name="author" required placeholder="作者">
+        </div>
+      </div>
+      <div class="field">
+        <label>联系方式</label>
+        <input type="text" name="contact" placeholder="QQ / 邮箱 / Discord 等">
+      </div>
+
+      <!-- 描述 -->
+      <div class="desc-section">
+        <div class="field">
+          <label>编辑简介 (Markdown)</label>
+          <textarea name="desc" id="descInput">### 机器概览
+- **核心功能**: 
+- **适用版本**: Java 1.20.x
+
+### 使用说明
+1. 在非原版特性端使用时，请先测试机器能否正常工作后进行实装
+2. 说明2</textarea>
+        </div>
+        <div>
+          <label class="label-preview">Markdown 预览</label>
+          <div class="preview-pane" id="descPreview"></div>
+        </div>
+      </div>
+
+      <!-- 标签 -->
+      <div class="tags-section">
+        <div class="tags-title">分类标签</div>
+        <div id="tagsContainer"></div>
+      </div>
+
+      <input type="hidden" name="token" id="tokenField">
+
+      <button type="submit" class="submit-btn" id="submitBtn" disabled>
+        确认并提交投稿
+      </button>
+    </form>
+
+    <!-- 加载中 -->
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>正在打包并提交投稿...</p>
+    </div>
+
+    <!-- 结果 -->
+    <div id="result"></div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

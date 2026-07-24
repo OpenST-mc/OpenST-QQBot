@@ -24,51 +24,61 @@ export interface KnowledgeEntry {
 /** 特征提取管线实例（单例） */
 let extractor: any = null
 
+/** 模型加载 Promise，防止并发重复加载 */
+let extractorPromise: Promise<any> | null = null
+
 async function getExtractor(): Promise<any> {
   if (extractor) return extractor
-  console.log(`[Embedding] 正在加载模型 ${MODEL_NAME}（首次需下载 ~470MB）...`)
-  const { pipeline, env } = await import('@xenova/transformers')
+  if (extractorPromise) return extractorPromise
 
-  // 尝试通过系统代理下载模型（兼容 Clash 等本地代理工具）
-  await setupFetchProxy()
+  extractorPromise = (async () => {
+    console.log(`[Embedding] 正在加载模型 ${MODEL_NAME}（首次需下载 ~470MB）...`)
+    const { pipeline, env } = await import('@xenova/transformers')
 
-  // DNS 被本地代理(如 Clash)劫持到 127.0.0.1 且代理不可用时，切换为公共 DNS
-  const dns = await import('dns')
-  const servers = dns.getServers()
-  if (servers.length === 1 && servers[0] === '127.0.0.1') {
-    dns.setServers(['223.5.5.5', '114.114.114.114', '8.8.8.8'])
-    console.log('[Embedding] 检测到本地 DNS 代理，已切换为公共 DNS')
-  }
+    await setupFetchProxy()
 
-  // 优先使用本地预下载的模型
-  const localPath = process.env['EMBEDDING_MODEL_LOCAL']
-  if (localPath) {
-    env.localModelPath = localPath
-    env.allowRemoteModels = false
-    console.log(`[Embedding] 使用本地模型路径: ${localPath}`)
-  }
+    // DNS 被本地代理(如 Clash)劫持到 127.0.0.1 且代理不可用时，切换为公共 DNS
+    const dns = await import('dns')
+    const servers = dns.getServers()
+    if (servers.length === 1 && servers[0] === '127.0.0.1') {
+      dns.setServers(['223.5.5.5', '114.114.114.114', '8.8.8.8'])
+      console.log('[Embedding] 检测到本地 DNS 代理，已切换为公共 DNS')
+    }
 
-  // 镜像源：国内默认使用 hf-mirror.com，可通过环境变量覆盖
-  const mirror = process.env['EMBEDDING_MODEL_MIRROR'] || 'https://hf-mirror.com/'
-  env.remoteHost = mirror
-  console.log(`[Embedding] 下载源: ${mirror}`)
+    // 优先使用本地预下载的模型
+    const localPath = process.env['EMBEDDING_MODEL_LOCAL']
+    if (localPath) {
+      env.localModelPath = localPath
+      env.allowRemoteModels = false
+      console.log(`[Embedding] 使用本地模型路径: ${localPath}`)
+    }
 
-  extractor = await pipeline('feature-extraction', MODEL_NAME)
-  console.log('[Embedding] 模型加载完成')
-  return extractor
+    // 镜像源：国内默认使用 hf-mirror.com，可通过环境变量覆盖
+    const mirror = process.env['EMBEDDING_MODEL_MIRROR'] || 'https://hf-mirror.com/'
+    env.remoteHost = mirror
+    console.log(`[Embedding] 下载源: ${mirror}`)
+
+    extractor = await pipeline('feature-extraction', MODEL_NAME)
+    console.log('[Embedding] 模型加载完成')
+    return extractor
+  })()
+
+  return extractorPromise
 }
 
 /**
- * 如果检测到 Clash 代理在标准端口运行，配置 undici 全局代理
- * 确保模型下载能通过代理完成 DNS 解析与防火墙穿透
+ * 仅当用户显式配置了 HTTPS_PROXY 或 https_proxy 环境变量时，
+ * 才设置 undici 全局代理。避免在无代理环境下默认设置不可用代理导致
+ * 所有 fetch 请求失败。
  */
 async function setupFetchProxy(): Promise<void> {
+  const proxyUrl = process.env['HTTPS_PROXY'] || process.env['https_proxy']
+  if (!proxyUrl) {
+    return
+  }
+
   try {
     const { setGlobalDispatcher, ProxyAgent } = await import('undici')
-    // 如果已配置 HTTPS_PROXY 环境变量，优先使用
-    const proxyUrl = process.env['HTTPS_PROXY'] ||
-      process.env['https_proxy'] ||
-      'http://127.0.0.1:7890'
     setGlobalDispatcher(new ProxyAgent(proxyUrl))
     console.log(`[Embedding] fetch 代理已启用: ${proxyUrl}`)
   } catch {

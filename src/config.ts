@@ -50,6 +50,17 @@ export const DEEPSEEK_MODEL = 'deepseek-chat'
 export const UPLOAD_PORT = parseInt(process.env['UPLOAD_PORT'] || '3000', 10)
 export const UPLOAD_TOKEN_EXPIRY_MS = 30 * 60 * 1000 // 令牌有效期 30 分钟
 
+/** 上传前端页面部署地址（Vercel），bot 仅生成链接，不渲染 HTML */
+export const UPLOAD_FRONTEND_URL =
+  process.env['UPLOAD_FRONTEND_URL'] || `http://localhost:${UPLOAD_PORT}`
+
+/** GitHub 提交配置（bot 用自身 token 创建 Issue） */
+export const GITHUB_TOKEN = process.env['GITHUB_TOKEN'] || ''
+export const GH_SUBMISSION_REPO = process.env['GH_SUBMISSION_REPO'] || 'OpenST-mc/Submissions'
+
+/** Worker API 地址（投稿中继） */
+export const WORKER_URL = process.env['WORKER_URL'] || 'https://api.openstmc.com'
+
 /** 本地机器数据库路径 */
 export const DATABASE_PATH = 'public/database/database.json'
 export const SHARE_BASE_URL = 'https://openstmc.com/api/share?'
