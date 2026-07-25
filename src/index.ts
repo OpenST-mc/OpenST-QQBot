@@ -7,7 +7,6 @@ import 'dotenv/config'
 import { startWebSocket, healthCheck } from './bot/adapter'
 import { handleEvent, registerHandler } from './bot/event'
 import { routeMessage } from './commands/router'
-import { startUploadServer } from './upload/server'
 import { closeOcr } from './services/attachment'
 import { warmupEmbedding } from './services/embeddings'
 
@@ -30,9 +29,6 @@ async function main(): Promise<void> {
 
   // 注册全局消息处理器：事件 -> 路由 -> 命令
   registerHandler(routeMessage)
-
-  // 启动上传页面服务
-  startUploadServer()
 
   // 预热语义搜索模型（Sentence-BERT，首次需下载 ~470MB）
   await warmupEmbedding()

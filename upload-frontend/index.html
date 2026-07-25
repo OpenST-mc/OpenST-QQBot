@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenST 机器投递</title>
   <link rel="stylesheet" href="style.css">
+  <script src="https://lib.baomitu.com/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 <div class="container" id="app">
@@ -13,7 +14,7 @@
   <div id="noToken" style="display:none;text-align:center;padding:80px 0">
     <div style="font-size:48px;margin-bottom:16px">&#128274;</div>
     <h2 style="color:#fff;margin-bottom:8px">无效访问</h2>
-    <p style="color:#9ca3af;font-size:14px">
+    <p style="color:#9ca3af;font-size:14px" id="noTokenMsg">
       请通过 QQ Bot 获取有效上传链接
     </p>
   </div>

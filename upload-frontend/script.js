@@ -1,10 +1,10 @@
 /**
  * OpenST 上传前端脚本
- * 独立于 bot 运行，部署在 Vercel
- * 从 URL 读取 token + api 参数，提交到 bot 后端 API
+ * 部署在 Vercel，bot 通过 URL 传入 t/g/w 三参数
+ * 页面加载时调 /api/validate 校验令牌
+ * 表单提交到 /api/submit，由 Vercel API 完成全量处理
  */
 
-// 标签配置，与 bot 端 upload/config.ts 保持同步
 var TAG_CONFIG = {
   '非编码存储科技': {
     '全物品单片': ['8箱单片', '10箱单片', '其他单片'],
@@ -56,26 +56,59 @@ var TAG_CONFIG = {
   '版本': ['1.21.x', '1.20.x', '1.19+', '1.17+', '1.16+']
 };
 
-/** API 基础地址，从 URL 参数读取 */
-var API_BASE = '';
-
-/** 上传令牌，从 URL 参数读取 */
+/** 上传令牌，从 URL ?t= 读取 */
 var TOKEN = '';
 
-/** 父子标签映射 */
+/** 加密的 GitHub token，从 URL ?g= 读取，提交时传给 API */
+var ENC_GH = '';
+
+/** Worker URL，从 URL ?w= 读取，提交时传给 API */
+var WORKER_URL = '';
+
 var tagParents = {};
 
-// 初始化
 (function init() {
   var params = new URLSearchParams(window.location.search);
-  TOKEN = params.get('token') || '';
-  API_BASE = params.get('api') || '';
+  TOKEN = params.get('t') || '';
+  ENC_GH = params.get('g') || '';
+  WORKER_URL = params.get('w') || '';
 
   if (!TOKEN) {
-    document.getElementById('noToken').style.display = 'block';
+    showNoToken('请通过 QQ Bot 获取有效上传链接');
     return;
   }
 
+  validateAndShow();
+})();
+
+/** 调用 Vercel API 校验 token */
+function validateAndShow() {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', '/api/validate?t=' + encodeURIComponent(TOKEN));
+  xhr.onload = function () {
+    if (xhr.status === 200) {
+      var data;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { data = {}; }
+      if (data.valid) {
+        showForm();
+        return;
+      }
+    }
+    showNoToken('无效或已过期的令牌');
+  };
+  xhr.onerror = function () {
+    showNoToken('令牌校验服务不可用');
+  };
+  xhr.send();
+}
+
+function showNoToken(msg) {
+  var el = document.getElementById('noToken');
+  el.style.display = 'block';
+  el.querySelector('#noTokenMsg').textContent = msg;
+}
+
+function showForm() {
   document.getElementById('formSection').style.display = 'block';
   document.getElementById('tokenField').value = TOKEN;
 
@@ -84,9 +117,8 @@ var tagParents = {};
   bindEvents();
   renderMarkdownPreview();
   checkReady();
-})();
+}
 
-/** 构建父子标签映射 */
 function buildTagParents() {
   tagParents = {};
   for (var mainCat in TAG_CONFIG) {
@@ -102,7 +134,6 @@ function buildTagParents() {
   }
 }
 
-/** 渲染标签复选框 */
 function renderTags() {
   var container = document.getElementById('tagsContainer');
   var html = '';
@@ -148,15 +179,12 @@ function renderTags() {
   container.innerHTML = html;
 }
 
-/** HTML 转义 */
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** 绑定事件 */
 function bindEvents() {
-  // 文件选择
   document.getElementById('previewInput').addEventListener('change', function (e) {
     var f = e.target.files[0];
     var lbl = document.getElementById('previewLabel');
@@ -183,29 +211,22 @@ function bindEvents() {
     checkReady();
   });
 
-  // 名称输入
   document.getElementById('nameInput').addEventListener('input', checkReady);
-
-  // 描述输入 Markdown 预览
   document.getElementById('descInput').addEventListener('input', renderMarkdownPreview);
 
-  // 标签勾选逻辑（事件委托）
   document.getElementById('tagsContainer').addEventListener(
     'change', handleTagChange);
 
-  // 表单提交
   document.getElementById('uploadForm').addEventListener(
     'submit', handleSubmit);
 }
 
-/** 标签勾选交互 */
 function handleTagChange(e) {
   if (e.target.name !== 'tags') return;
   var tag = e.target.value;
   var cb = e.target;
 
   if (cb.checked) {
-    // 勾选子级 -> 自动勾选父级
     var parent = tagParents[tag];
     if (parent) {
       var parentCb = document.querySelector(
@@ -213,7 +234,6 @@ function handleTagChange(e) {
       if (parentCb && !parentCb.checked) parentCb.checked = true;
     }
   } else {
-    // 取消父级 -> 取消所有子级
     var subArr = TAG_CONFIG[tag];
     if (subArr && !Array.isArray(subArr)) {
       var subValues = Object.values(subArr);
@@ -229,7 +249,6 @@ function handleTagChange(e) {
   }
 }
 
-/** 检查是否满足提交条件 */
 function checkReady() {
   var name = document.getElementById('nameInput').value;
   var pf = document.getElementById('previewInput').files[0];
@@ -237,7 +256,6 @@ function checkReady() {
   document.getElementById('submitBtn').disabled = !(name && pf && lf);
 }
 
-/** 简易 Markdown 渲染 */
 function renderMarkdownPreview() {
   var raw = document.getElementById('descInput').value;
   var el = document.getElementById('descPreview');
@@ -256,7 +274,6 @@ function renderMarkdownPreview() {
   el.innerHTML = html;
 }
 
-/** 处理表单提交 */
 async function handleSubmit(e) {
   e.preventDefault();
 
@@ -266,32 +283,95 @@ async function handleSubmit(e) {
   document.getElementById('result').style.display = 'none';
   document.getElementById('result').className = '';
 
-  var fd = new FormData(e.target);
-
   try {
-    var url = API_BASE + '/api/upload/submit';
-    // 确保 token 以 query 参数传递
-    if (url.indexOf('?') === -1) {
-      url += '?token=' + encodeURIComponent(TOKEN);
-    } else {
-      url += '&token=' + encodeURIComponent(TOKEN);
+    // 读取表单数据
+    var name = document.querySelector('input[name="name"]').value.trim();
+    var author = document.querySelector('input[name="author"]').value.trim();
+    var contact = document.querySelector('input[name="contact"]').value.trim();
+    var desc = document.querySelector('textarea[name="desc"]').value.trim();
+    var previewFile = document.getElementById('previewInput').files[0];
+    var litematicFile = document.getElementById('litematicInput').files[0];
+    var checkedTags = document.querySelectorAll(
+      'input[name="tags"]:checked');
+    var tags = [];
+    for (var i = 0; i < checkedTags.length; i++) {
+      tags.push(checkedTags[i].value);
     }
 
-    var resp = await fetch(url, {
-      method: 'POST',
-      body: fd
-    });
-    var data = await resp.json();
+    // 浏览器端 JSZip 打包
+    var safeFolderName = name.replace(/[#\\/:*?"<>|]/g, '_');
+    var previewExt = previewFile.name.split('.').pop().toLowerCase();
+    var previewFileName = 'preview.' + previewExt;
+    var originalFileName = litematicFile.name;
+    var now = new Date();
+
+    var infoJson = {
+      id: 'sub-' + now.getTime(),
+      name: name,
+      author: author || '匿名',
+      tags: tags,
+      description: desc,
+      folder: safeFolderName,
+      preview: previewFileName,
+      filename: originalFileName,
+      submitDate: now.toISOString()
+    };
+
+    var zip = new JSZip();
+    var folder = zip.folder(safeFolderName);
+    folder.file('info.json', JSON.stringify(infoJson, null, 4));
+    folder.file(previewFileName, previewFile);
+    folder.file(originalFileName, litematicFile);
+    var zipBlob = await zip.generateAsync({ type: 'blob' });
+
+    // POST 到 Worker 中继
+    var workerFd = new FormData();
+    workerFd.append('name', name);
+    workerFd.append('zip', zipBlob, 'submission_' + safeFolderName + '.zip');
+    workerFd.append('preview', previewFile);
+
+    var workerResp = await fetch(
+      WORKER_URL + '/api/archive-upload',
+      { method: 'POST', body: workerFd }
+    );
+
+    if (!workerResp.ok) throw new Error('文件上传失败');
+    var workerData = await workerResp.json();
+    var downloadUrl = workerData.downloadUrl ||
+      (workerData.filePath
+        ? WORKER_URL + '/dl/' + workerData.filePath
+        : undefined);
+
+    // POST 到 Vercel API 创建 GitHub Issue
+    var issueResp = await fetch(
+      '/api/submit?t=' + encodeURIComponent(TOKEN) +
+      '&g=' + encodeURIComponent(ENC_GH),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name,
+          author: author,
+          contact: contact,
+          desc: desc,
+          tags: tags,
+          downloadUrl: downloadUrl || '',
+          infoJson: infoJson
+        })
+      }
+    );
+
+    var issueData = await issueResp.json();
     document.getElementById('loading').style.display = 'none';
 
     var resultEl = document.getElementById('result');
-    if (resp.ok && data.success) {
+    if (issueResp.ok && issueData.success) {
       resultEl.className = 'success';
       resultEl.innerHTML =
         '<strong style="color:#40B5AD">投递成功！</strong><br><br>' +
         '作品已提交审核。<br>' +
-        (data.issueUrl
-          ? '<a href="' + data.issueUrl +
+        (issueData.issueUrl
+          ? '<a href="' + issueData.issueUrl +
             '" target="_blank" rel="noopener">查看审核 Issue</a>'
           : '') +
         '<br><br>' +
@@ -300,14 +380,14 @@ async function handleSubmit(e) {
         'text-decoration:underline;font-size:13px">投递下一个项目</button>';
     } else {
       resultEl.className = 'error';
-      resultEl.textContent = '提交失败: ' + (data.error || '未知错误');
+      resultEl.textContent = '提交失败: ' +
+        (issueData.error || '未知错误');
     }
-    btn.disabled = false;
   } catch (err) {
     document.getElementById('loading').style.display = 'none';
     var resultEl = document.getElementById('result');
     resultEl.className = 'error';
-    resultEl.textContent = '网络错误: ' + err.message;
-    btn.disabled = false;
+    resultEl.textContent = '提交失败: ' + err.message;
   }
+  btn.disabled = false;
 }

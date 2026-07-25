@@ -47,18 +47,13 @@ export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
 export const DEEPSEEK_MODEL = 'deepseek-chat'
 
 /** 上传服务配置 */
-export const UPLOAD_PORT = parseInt(process.env['UPLOAD_PORT'] || '3000', 10)
 export const UPLOAD_TOKEN_EXPIRY_MS = 30 * 60 * 1000 // 令牌有效期 30 分钟
 
-/** 上传前端页面部署地址（Vercel），bot 仅生成链接，不渲染 HTML */
+/** 上传前端页面部署地址（Vercel） */
 export const UPLOAD_FRONTEND_URL =
-  process.env['UPLOAD_FRONTEND_URL'] || `http://localhost:${UPLOAD_PORT}`
+  process.env['UPLOAD_FRONTEND_URL'] || ''
 
-/** GitHub 提交配置（bot 用自身 token 创建 Issue） */
-export const GITHUB_TOKEN = process.env['GITHUB_TOKEN'] || ''
-export const GH_SUBMISSION_REPO = process.env['GH_SUBMISSION_REPO'] || 'OpenST-mc/Submissions'
-
-/** Worker API 地址（投稿中继） */
+/** Worker API 地址（投稿中继），作为上传 API 路由传给前端 */
 export const WORKER_URL = process.env['WORKER_URL'] || 'https://api.openstmc.com'
 
 /** 本地机器数据库路径 */
@@ -72,6 +67,3 @@ export const AI_AGENT_PROMPT_PATH = 'agent/AGENTS.md'
 /** QQ API 端点 */
 export const QQ_API_BASE = 'https://api.sgroup.qq.com'
 export const QQ_TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken'
-
-/** 上传文件存储 */
-export const UPLOAD_DIR = 'uploads'
