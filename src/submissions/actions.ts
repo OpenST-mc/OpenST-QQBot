@@ -1,7 +1,5 @@
-/**
- * 审核操作：认领、通过、拒稿
- * 包含权限校验和 GitHub API 调用
- */
+// 审核操作：认领、通过、拒稿
+// 包含权限校验和 GitHub API 调用
 import { sendMessage, sendMarkdown } from '../bot/adapter'
 import {
   closeIssueAsCompleted,
@@ -18,16 +16,14 @@ import {
 import { isReviewer } from './reviewer'
 import { SUBMISSIONS_AC } from './config'
 
-/** 交互响应上下文 */
+// 交互响应上下文
 export interface ActionContext {
   userOpenid: string
   groupOpenid: string
 }
 
-/**
- * 认领稿件
- * 仅审核人员可认领
- */
+// 认领稿件
+// 仅审核人员可认领
 export async function claimIssue(
   issueNumber: number,
   ctx: ActionContext
@@ -91,10 +87,8 @@ export async function claimIssue(
   )
 }
 
-/**
- * 通过稿件
- * 下载投稿包 -> 解压 -> 上传文件到 website 仓库 -> 关闭 issue
- */
+// 通过稿件
+// 下载投稿包 -> 解压 -> 上传文件到 website 仓库 -> 关闭 issue
 export async function approveIssue(
   issueNumber: number,
   ctx: ActionContext
@@ -166,6 +160,18 @@ export async function approveIssue(
       }
     }
 
+    // 至少有一个文件上传成功才关闭 issue，全部失败则报错
+    if (uploadedCount === 0) {
+      await sendMessage({
+        content:
+          `稿件 #${issueNumber} 处理失败：所有文件上传均未成功，` +
+          `请检查 GitHub token 权限或文件是否已存在。Issue 未关闭。`,
+        sourceType: 'group',
+        groupOpenid: ctx.groupOpenid
+      })
+      return
+    }
+
     // 关闭 issue 为 completed
     await closeIssueAsCompleted(issueNumber)
 
@@ -200,10 +206,8 @@ export async function approveIssue(
   }
 }
 
-/**
- * 拒稿
- * 关闭 issue 为 not_planned
- */
+// 拒稿
+// 关闭 issue 为 not_planned
 export async function rejectIssue(
   issueNumber: number,
   ctx: ActionContext

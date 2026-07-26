@@ -1,8 +1,6 @@
-/**
- * /upload 命令处理器
- * bot 仅生成参数 URL，不运行上传服务器
- * URL: https://vercel.app/?t=<token>&g=<enc_gh>&w=<worker_url>
- */
+// /upload 命令处理器
+// bot 仅生成参数 URL，不运行上传服务器
+// URL: https://vercel.app/?t=<token>&g=<enc_gh>&w=<worker_url>
 import { QqMessageEvent, sendMessage } from '../bot/adapter'
 import { generateToken, encryptGhToken } from '../upload/server'
 import { UPLOAD_FRONTEND_URL, WORKER_URL } from '../config'

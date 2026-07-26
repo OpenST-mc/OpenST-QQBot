@@ -1,11 +1,9 @@
-/**
- * 按钮交互处理器
- * 接收 QQ 的 INTERACTION_CREATE 事件，解析回调数据并分发到对应操作
- */
+// 按钮交互处理器
+// 接收 QQ 的 INTERACTION_CREATE 事件，解析回调数据并分发到对应操作
 import { QqInteractionEvent } from '../bot/adapter'
 import { claimIssue, approveIssue, rejectIssue, ActionContext } from './actions'
 
-/** 处理按钮点击交互 */
+// 处理按钮点击交互
 export async function handleInteraction(
   interaction: QqInteractionEvent
 ): Promise<void> {

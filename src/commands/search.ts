@@ -1,16 +1,14 @@
-/**
- * /search 命令处理器
- * 联网搜索 + 可选 AI 摘要
- * 用法: /search <查询关键词>
- * 也支持引用消息：回复某条消息并发送 /search（无参数），将搜索引用消息内容
- */
+// /search 命令处理器
+// 联网搜索 + 可选 AI 摘要
+// 用法: /search <查询关键词>
+// 也支持引用消息：回复某条消息并发送 /search（无参数），将搜索引用消息内容
 import { QqMessageEvent, sendMessage, sendMarkdown } from '../bot/adapter'
 import {
   webSearch,
   summarizeResults,
   SearchResult
 } from '../services/search'
-import { SEARCH_MAX_RESULTS, SEARCH_AI_SUMMARIZE, SEARCH_ENABLED } from '../config'
+import { SEARCH_AI_SUMMARIZE, SEARCH_ENABLED } from '../config'
 
 export async function handleSearch(
   event: QqMessageEvent,
@@ -97,9 +95,13 @@ export async function handleSearch(
 
   // AI 摘要（可选，默认开启）
   if (SEARCH_AI_SUMMARIZE) {
-    const summary = await summarizeResults(query, results)
-    if (summary) {
-      reply += `\n\n**AI 摘要**\n${summary}`
+    try {
+      const summary = await summarizeResults(query, results)
+      if (summary) {
+        reply += `\n\n**AI 摘要**\n${summary}`
+      }
+    } catch (err) {
+      console.warn('[SearchCmd] AI 摘要失败，跳过显示摘要:', (err as Error).message)
     }
   }
 
@@ -109,7 +111,7 @@ export async function handleSearch(
     const r = results[i]
     reply += `\n\n${i + 1}. **[${r.title}](${r.url})**`
     if (r.snippet) {
-      reply += `\n   ${r.snippet.slice(0, 120)}`
+      reply += `\n   ${Array.from(r.snippet).slice(0, 120).join('')}`
     }
   }
 

@@ -1,7 +1,5 @@
-/**
- * 投稿审核模块配置
- * 所有配置从 config.ts 集中导入，本层不直接读 process.env
- */
+// 投稿审核模块配置
+// 重新导出主配置 + GitHub 仓库常量
 import {
   SUBMISSIONS_AC,
   SUBMISSIONS_REVIEWERS,
@@ -18,12 +16,12 @@ export {
   SUBMISSIONS_AT_COUNT
 }
 
-/** GitHub 仓库常量 */
+// GitHub 仓库常量
 export const SUBMISSIONS_REPO_OWNER = 'OpenST-mc'
 export const SUBMISSIONS_REPO_NAME = 'Submissions'
 export const WEBSITE_REPO_OWNER = 'OpenST-mc'
 export const WEBSITE_REPO_NAME = 'website'
 export const WEBSITE_ARCHIVE_PATH = 'archive/archive'
 
-/** GitHub Issues API 基础 URL */
+// GitHub Issues API 基础 URL
 export const GH_API_BASE = 'https://api.github.com'

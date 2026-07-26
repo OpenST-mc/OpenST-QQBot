@@ -1,18 +1,16 @@
-/**
- * 对话学习服务
- * 支持两种模式：
- * 1. 被动学习：AI 无法回答 -> 用户补充 -> 自动提取知识
- * 2. 主动学习：用户 /ask 中直接传授知识 -> 自动提取入库
- * 知识写入 public/database/database.csv（topic,content 格式）
- */
+// 对话学习服务
+// 支持两种模式：
+// 1. 被动学习：AI 无法回答 -> 用户补充 -> 自动提取知识
+// 2. 主动学习：用户 /ask 中直接传授知识 -> 自动提取入库
+// 知识写入 public/database/database.csv（topic,content 格式）
 import fs from 'fs'
 import { askAi } from './ai'
 
-/** 学习数据路径 */
+// 学习数据路径
 const LEARN_DB_PATH = 'public/database/database.csv'
 const CSV_HEADER = 'topic,content\n'
 
-/** 知识共享关键词 */
+// 知识共享关键词
 const KNOWLEDGE_SHARING_PATTERNS = [
   '就是', '指的是', '应该算', '是一种', '请你理解',
   'Fun fact', '实际上', '请注意', '记住', '原理',
@@ -20,9 +18,7 @@ const KNOWLEDGE_SHARING_PATTERNS = [
   '介绍如下', '定义', '其核心', '不同于', '而不是'
 ]
 
-/**
- * 判断用户消息是否包含可学习知识
- */
+// 判断用户消息是否包含可学习知识
 export function isLearnableMessage(userInput: string): boolean {
   if (userInput.length < 80) {
     return false
@@ -31,9 +27,7 @@ export function isLearnableMessage(userInput: string): boolean {
   return KNOWLEDGE_SHARING_PATTERNS.some((p) => lower.includes(p.toLowerCase()))
 }
 
-/**
- * 从单条用户消息中提取知识（主动学习模式）
- */
+// 从单条用户消息中提取知识（主动学习模式）
 export async function learnFromMessage(
   userMessage: string,
   aiResponse: string
@@ -60,9 +54,7 @@ ${aiResponse.slice(0, 800)}
   return appendToCsv(parseTopicContent(summary.trim()))
 }
 
-/**
- * 从对话上下文中提取知识（被动学习模式）
- */
+// 从对话上下文中提取知识（被动学习模式）
 export async function learnFromContext(
   topic: string,
   recentMessages: string
@@ -89,10 +81,8 @@ ${recentMessages}
   return appendToCsv(parseTopicContent(summary.trim()))
 }
 
-/**
- * 从 AI 回复中解析 topic 和 content
- * 格式：第一行是 topic，其余是 content
- */
+// 从 AI 回复中解析 topic 和 content
+// 格式：第一行是 topic，其余是 content
 function parseTopicContent(raw: string): { topic: string; content: string } {
   const lines = raw.split('\n')
   const topic = lines[0]
@@ -103,9 +93,7 @@ function parseTopicContent(raw: string): { topic: string; content: string } {
   return { topic, content: content || topic }
 }
 
-/**
- * 写入 CSV 文件
- */
+// 写入 CSV 文件
 function appendToCsv(
   entry: { topic: string; content: string }
 ): string | null {

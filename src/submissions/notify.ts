@@ -1,15 +1,13 @@
-/**
- * 新稿件通知
- * 构建 Markdown + 键盘消息，发送到审核群
- * 根据审核负载 @ 提示最空闲的审核人员
- */
+// 新稿件通知
+// 构建 Markdown + 键盘消息，发送到审核群
+// 根据审核负载 @ 提示最空闲的审核人员
 import { sendMarkdownWithKeyboard, KeyboardRow } from '../bot/adapter'
 import { GhIssue } from './gh'
 import { setIssueState } from './state'
 import { getIdleReviewers, getReviewerCount } from './reviewer'
 import { SUBMISSIONS_AC } from './config'
 
-/** 向审核群发送新稿件通知 */
+// 向审核群发送新稿件通知
 export async function sendNotification(issue: GhIssue): Promise<void> {
   // 截取 body 的前 800 字符作为预览
   const bodyPreview = issue.body.length > 800

@@ -1,12 +1,10 @@
-/**
- * 投稿审核系统持久化状态
- * 使用 JSON 文件存储已通知 issue 编号和认领关系
- * 每次轮询时自动清理已关闭 issue 的遗留记录
- */
+// 投稿审核系统持久化状态
+// 使用 JSON 文件存储已通知 issue 编号和认领关系
+// 每次轮询时自动清理已关闭 issue 的遗留记录
 import * as fs from 'fs'
 import * as path from 'path'
 
-/** 单条 issue 的审核状态 */
+// 单条 issue 的审核状态
 export interface IssueState {
   issueNumber: number
   title: string
@@ -15,7 +13,7 @@ export interface IssueState {
   claimedBy: string
 }
 
-/** 持久化数据结构 */
+// 持久化数据结构
 interface PersistedState {
   seen: number[]
   issues: Record<number, IssueState>
@@ -26,7 +24,7 @@ const STATE_FILE = path.resolve('public/database/submissions.json')
 let seenSet = new Set<number>()
 let issueMap = new Map<number, IssueState>()
 
-/** 从 JSON 文件加载状态 */
+// 从 JSON 文件加载状态
 export function loadState(): void {
   try {
     if (fs.existsSync(STATE_FILE)) {
@@ -55,7 +53,7 @@ export function loadState(): void {
   }
 }
 
-/** 保存状态到 JSON 文件 */
+// 保存状态到 JSON 文件（原子写入：先写临时文件再 rename）
 function saveState(): void {
   try {
     const dir = path.dirname(STATE_FILE)
@@ -73,45 +71,45 @@ function saveState(): void {
       issues
     }
 
-    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf-8')
+    const tmpPath = STATE_FILE + '.tmp'
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8')
+    fs.renameSync(tmpPath, STATE_FILE)
   } catch (err) {
     const error = err as Error
     console.error('[Submissions] 状态文件保存失败:', error.message)
   }
 }
 
-/** 标记 issue 已通知 */
+// 标记 issue 已通知
 export function markSeen(issueNumber: number): void {
   seenSet.add(issueNumber)
   saveState()
 }
 
-/** 检查 issue 是否已通知过 */
+// 检查 issue 是否已通知过
 export function isSeen(issueNumber: number): boolean {
   return seenSet.has(issueNumber)
 }
 
-/** 保存 issue 状态 */
+// 保存 issue 状态
 export function setIssueState(state: IssueState): void {
   issueMap.set(state.issueNumber, state)
   saveState()
 }
 
-/** 获取 issue 状态 */
+// 获取 issue 状态
 export function getIssueState(issueNumber: number): IssueState | undefined {
   return issueMap.get(issueNumber)
 }
 
-/** 删除 issue 状态（审批完成后） */
+// 删除 issue 状态（审批完成后）
 export function deleteIssueState(issueNumber: number): void {
   issueMap.delete(issueNumber)
   saveState()
 }
 
-/**
- * 清理已关闭 issue 的遗留记录
- * 传入选定的当前 open issue 编号集合，不在其中的记录会被从 JSON 中清除
- */
+// 清理已关闭 issue 的遗留记录
+// 传入选定的当前 open issue 编号集合，不在其中的记录会被从 JSON 中清除
 export function cleanClosedIssues(openIssueNumbers: Set<number>): void {
   // 清理 seenSet 中已关闭的 issue
   for (const num of seenSet) {
@@ -130,7 +128,7 @@ export function cleanClosedIssues(openIssueNumbers: Set<number>): void {
   saveState()
 }
 
-/** 获取某用户认领的所有 issue */
+// 获取某用户认领的所有 issue
 export function getClaimedByUser(userOpenid: string): IssueState[] {
   const result: IssueState[] = []
   for (const state of issueMap.values()) {
@@ -141,7 +139,7 @@ export function getClaimedByUser(userOpenid: string): IssueState[] {
   return result
 }
 
-/** 获取某用户当前认领数 */
+// 获取某用户当前认领数
 export function getClaimedCount(userOpenid: string): number {
   let count = 0
   for (const state of issueMap.values()) {

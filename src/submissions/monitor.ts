@@ -1,8 +1,6 @@
-/**
- * GitHub Issues 轮询监控
- * 定时拉取 Submissions 仓库 open issues，发现新 issue 时触发通知
- * 每次轮询结束后清理 JSON 中已关闭 issue 的遗留记录
- */
+// GitHub Issues 轮询监控
+// 定时拉取 Submissions 仓库 open issues，发现新 issue 时触发通知
+// 每次轮询结束后清理 JSON 中已关闭 issue 的遗留记录
 import { fetchOpenIssues, GhIssue } from './gh'
 import { isSeen, markSeen, loadState, cleanClosedIssues } from './state'
 import { sendNotification } from './notify'
@@ -10,7 +8,10 @@ import { SUBMISSIONS_POLL_INTERVAL_S, SUBMISSIONS_AC } from './config'
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
-/** 启动轮询 */
+// 防重入锁：防止上次轮询未完成时再次触发
+let polling = false
+
+// 启动轮询
 export function startPolling(): void {
   if (!SUBMISSIONS_AC) {
     console.log('[Submissions] SUBMISSIONS_AC 未配置，跳过轮询')
@@ -28,10 +29,14 @@ export function startPolling(): void {
   // 立即执行一次
   pollOnce()
 
-  pollTimer = setInterval(pollOnce, SUBMISSIONS_POLL_INTERVAL_S * 1000)
+  pollTimer = setInterval(() => {
+    if (!polling) {
+      pollOnce()
+    }
+  }, SUBMISSIONS_POLL_INTERVAL_S * 1000)
 }
 
-/** 停止轮询 */
+// 停止轮询
 export function stopPolling(): void {
   if (pollTimer) {
     clearInterval(pollTimer)
@@ -39,8 +44,10 @@ export function stopPolling(): void {
   }
 }
 
-/** 执行一次轮询 */
+// 执行一次轮询
 async function pollOnce(): Promise<void> {
+  if (polling) return
+  polling = true
   try {
     const issues = await fetchOpenIssues()
     const openNumbers = new Set(issues.map((i) => i.number))
@@ -53,21 +60,28 @@ async function pollOnce(): Promise<void> {
     for (const issue of issues) {
       if (isSeen(issue.number)) continue
 
-      markSeen(issue.number)
-
       // 跳过 Wiki 类 issue，不发送稿件通知
       if (issue.title.startsWith('[Wiki 新投稿]') ||
           issue.title.startsWith('[Wiki 修正]')) {
         console.log(
           `[Submissions] 跳过 Wiki 类 issue #${issue.number}: ${issue.title}`
         )
+        markSeen(issue.number)
         continue
       }
 
-      newCount++
-
-      // 发送通知
-      await sendNotification(issue)
+      // 先发送通知，成功后再标记已见，避免通知失败丢失 issue
+      try {
+        await sendNotification(issue)
+        markSeen(issue.number)
+        newCount++
+      } catch (err) {
+        const error = err as Error
+        console.error(
+          `[Submissions] 通知发送失败 #${issue.number}: ${error.message}` +
+          ` | 未标记已见，下次轮询重试`
+        )
+      }
     }
 
     if (newCount > 0) {
@@ -79,5 +93,7 @@ async function pollOnce(): Promise<void> {
   } catch (err) {
     const error = err as Error
     console.error('[Submissions] 轮询失败:', error.message)
+  } finally {
+    polling = false
   }
 }

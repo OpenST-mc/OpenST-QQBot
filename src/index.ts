@@ -1,8 +1,6 @@
-/**
- * 主入口
- * 启动 QQ Bot WebSocket 长连接 + 上传页面 Express 服务
- * ..env 文件在最早时机加载，保证 config.ts 能读取到环境变量
- */
+// 主入口
+// 启动 QQ Bot WebSocket 长连接 + 上传页面 Express 服务
+// .env 文件在最早时机加载，保证 config.ts 能读取到环境变量
 import 'dotenv/config'
 import { startWebSocket, healthCheck } from './bot/adapter'
 import { handleEvent, registerHandler } from './bot/event'
@@ -10,10 +8,9 @@ import { routeMessage } from './commands/router'
 import { closeOcr } from './services/attachment'
 import { warmupEmbedding } from './services/embeddings'
 import { initSubmissions, shutdownSubmissions } from './submissions'
+import { shutdownContext } from './services/context'
 
-/**
- * 初始化并启动所有服务
- */
+// 初始化并启动所有服务
 async function main(): Promise<void> {
   console.log('[Index] OpenST QQ Bot 启动中...')
 
@@ -55,6 +52,7 @@ async function main(): Promise<void> {
 process.on('SIGINT', async () => {
   console.log('[Index] 收到退出信号')
   shutdownSubmissions()
+  shutdownContext()
   await closeOcr()
   process.exit(0)
 })
@@ -62,11 +60,13 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   console.log('[Index] 收到终止信号')
   shutdownSubmissions()
+  shutdownContext()
   await closeOcr()
   process.exit(0)
 })
 
-main().catch((err: Error) => {
-  console.error('[Index] 启动失败:', err.message)
+main().catch((err: unknown) => {
+  const error = err as Error
+  console.error('[Index] 启动失败:', error.message)
   process.exit(1)
 })

@@ -1,7 +1,5 @@
-/**
- * 联网搜索服务
- * 默认 DuckDuckGo Lite（免费无需 API key），可选 SearXNG JSON（配 SEARCH_CUSTOM_URL）
- */
+// 联网搜索服务
+// 默认 DuckDuckGo Lite（免费无需 API key），可选 SearXNG JSON（配 SEARCH_CUSTOM_URL）
 import axios from 'axios'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 import fs from 'fs'
@@ -19,21 +17,28 @@ const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-/** 复用 HTTPS_PROXY 环境变量 */
+let cachedAgent: HttpsProxyAgent | undefined
+let cachedAgentProxy: string | null = null
+
+// 复用 HTTPS_PROXY 环境变量，缓存 agent 实例避免重复创建
 function getHttpsAgent(): HttpsProxyAgent | undefined {
   const proxyUrl = process.env['HTTPS_PROXY']
-  if (proxyUrl) {
+  if (!proxyUrl) return undefined
+  if (cachedAgent && cachedAgentProxy === proxyUrl) return cachedAgent
+  try {
     console.log(`[Search] 通过代理: ${proxyUrl}`)
-    return new HttpsProxyAgent(proxyUrl)
+    cachedAgent = new HttpsProxyAgent(proxyUrl)
+    cachedAgentProxy = proxyUrl
+    return cachedAgent
+  } catch {
+    console.warn(`[Search] 创建代理失败: ${proxyUrl}`)
+    return undefined
   }
-  return undefined
 }
 
-/**
- * DuckDuckGo Lite —— 纯 HTML 表格，无需 JS，跨地区一致
- * https://lite.duckduckgo.com/lite/
- * 结构：<a class="result-link"> / <td class="result-snippet"> / <span class="link-text">
- */
+// DuckDuckGo Lite —— 纯 HTML 表格，无需 JS，跨地区一致
+// https://lite.duckduckgo.com/lite/
+// 结构：<a class="result-link"> / <td class="result-snippet"> / <span class="link-text">
 async function searchDuckDuckGo(
   query: string,
   max: number
@@ -52,10 +57,24 @@ async function searchDuckDuckGo(
   const html: string = resp.data
   const results: SearchResult[] = []
 
-  // 调试：保存 HTML 到 tmp/ 便于排查
+  // 调试：保存 HTML 到 tmp/，同时清理超过 1 小时的旧文件
   try {
     const tmpDir = path.resolve('tmp')
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
+
+    // 清理超过 1 小时的旧 .html 文件
+    const oneHourAgo = Date.now() - 60 * 60 * 1000
+    const existing = fs.readdirSync(tmpDir)
+    for (const f of existing) {
+      if (!f.endsWith('.html')) continue
+      const fp = path.join(tmpDir, f)
+      try {
+        if (fs.statSync(fp).mtimeMs < oneHourAgo) {
+          fs.unlinkSync(fp)
+        }
+      } catch { /* 忽略清理失败 */ }
+    }
+
     const safeQuery = query.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_').slice(0, 30)
     const dumpPath = path.join(tmpDir, `ddg_${safeQuery}_${Date.now()}.html`)
     fs.writeFileSync(dumpPath, html, 'utf-8')
@@ -126,9 +145,7 @@ async function searchDuckDuckGo(
   return results
 }
 
-/**
- * SearXNG JSON API（需配置 SEARCH_CUSTOM_URL）
- */
+// SearXNG JSON API（需配置 SEARCH_CUSTOM_URL）
 async function searchSearXNG(
   query: string,
   baseUrl: string,
@@ -151,11 +168,9 @@ async function searchSearXNG(
   }))
 }
 
-/**
- * 执行联网搜索
- * SEARCH_CUSTOM_URL 为空 → DuckDuckGo Lite
- * SEARCH_CUSTOM_URL 非空 → SearXNG
- */
+// 执行联网搜索
+// SEARCH_CUSTOM_URL 为空 → DuckDuckGo Lite
+// SEARCH_CUSTOM_URL 非空 → SearXNG
 export async function webSearch(query: string): Promise<SearchResult[]> {
   try {
     if (SEARCH_CUSTOM_URL) {
@@ -175,7 +190,7 @@ export async function webSearch(query: string): Promise<SearchResult[]> {
   }
 }
 
-/** AI 摘要系统提示词 */
+// AI 摘要系统提示词
 const SUMMARY_PROMPT =
   '你是一个搜索结果摘要助手。根据用户的问题和搜索结果，用中文写一段简短的摘要，' +
   '控制在 300 字以内。只基于提供的搜索结果回答，不要编造信息。' +

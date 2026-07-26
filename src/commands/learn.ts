@@ -1,9 +1,7 @@
-/**
- * /learn 命令处理器
- * 用户显式传授知识，支持文本 + 附件（图片OCR/文件解析）
- * 格式: /learn <标题> | <内容>
- * 写入 public/database/database.csv
- */
+// /learn 命令处理器
+// 用户显式传授知识，支持文本 + 附件（图片OCR/文件解析）
+// 格式: /learn <标题> | <内容>
+// 写入 public/database/database.csv
 import fs from 'fs'
 import { QqMessageEvent, sendMessage } from '../bot/adapter'
 import { parseAttachments } from '../services/attachment'
@@ -11,7 +9,12 @@ import { parseAttachments } from '../services/attachment'
 const LEARN_CSV_PATH = 'public/database/database.csv'
 const CSV_HEADER = 'topic,content\n'
 
-/** CSV 转义 */
+// 按字符（码点）安全截断，避免多字节 CJK/emoji 字符被截断
+function safeSlice(s: string, maxLen: number): string {
+  return Array.from(s).slice(0, maxLen).join('')
+}
+
+// CSV 转义
 function esc(s: string): string {
   if (s.includes(',') || s.includes('"') || s.includes('\n')) {
     return `"${s.replace(/"/g, '""')}"`
@@ -84,21 +87,29 @@ export async function handleLearn(
   }
 
   if (!title) {
-    title = content.slice(0, 40)
+    title = safeSlice(content, 40)
   }
 
-  // 写入 CSV
+  // 写入 CSV：始终用 append 模式，避免 TOCTOU 竞态条件导致并发写入覆盖
+  // 新文件或无内容时先写 header
   const row = `${esc(title)},${esc(content)}\n`
   try {
-    if (!fs.existsSync(LEARN_CSV_PATH)) {
-      fs.writeFileSync(LEARN_CSV_PATH, CSV_HEADER + row, 'utf-8')
+    let needHeader = false
+    try {
+      needHeader = !fs.existsSync(LEARN_CSV_PATH) ||
+        fs.statSync(LEARN_CSV_PATH).size === 0
+    } catch {
+      needHeader = true
+    }
+    if (needHeader) {
+      fs.appendFileSync(LEARN_CSV_PATH, CSV_HEADER + row, 'utf-8')
     } else {
       fs.appendFileSync(LEARN_CSV_PATH, row, 'utf-8')
     }
-    console.log(`[Learn] ${event.author.username}: ${title.slice(0, 40)}`)
+    console.log(`[Learn] ${event.author.username}: ${safeSlice(title, 40)}`)
 
     await sendMessage({
-      content: `已记录: ${title.slice(0, 50)}`,
+      content: `已记录: ${safeSlice(title, 50)}`,
       sourceType: event.sourceType,
       groupOpenid: event.groupOpenid,
       userOpenid: event.author.id,

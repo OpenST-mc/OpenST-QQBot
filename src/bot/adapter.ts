@@ -1,8 +1,6 @@
-/**
- * QQ Bot API 适配层
- * 封装所有 QQ API 的底层通信（WebSocket 长连接 + HTTP 短请求）
- * 核心业务系统不直接依赖 QQ 协议格式，均通过本层转换
- */
+// QQ Bot API 适配层
+// 封装所有 QQ API 的底层通信（WebSocket 长连接 + HTTP 短请求）
+// 核心业务系统不直接依赖 QQ 协议格式，均通过本层转换
 import axios from 'axios'
 import { WebSocket } from 'ws'
 import {
@@ -12,7 +10,7 @@ import {
   QQ_APP_SECRET
 } from '../config'
 
-/** QQ 消息事件类型 */
+// QQ 消息事件类型
 export interface QqMessageEvent {
   id: string
   author: { id: string; username?: string }
@@ -20,65 +18,65 @@ export interface QqMessageEvent {
   channelId: string
   guildId?: string
   groupOpenid?: string
-  /** QQ 群号（仅在群聊事件中有效） */
+  // QQ 群号（仅在群聊事件中有效）
   groupId?: string
   timestamp: string
-  /** 消息来源类型：私聊 / 群聊 / 频道 */
+  // 消息来源类型：私聊 / 群聊 / 频道
   sourceType: 'c2c' | 'group' | 'channel'
-  /** 本消息的附件列表 */
+  // 本消息的附件列表
   attachments: QqAttachment[]
-  /** 被引用消息的文本内容（回复/引用消息时） */
+  // 被引用消息的文本内容（回复/引用消息时）
   referencedContent: string
-  /** 被引用消息的附件列表（回复/引用消息时） */
+  // 被引用消息的附件列表（回复/引用消息时）
   referencedAttachments: QqAttachment[]
-  /** 原始事件类型，用于区分 @消息 和普通消息 */
+  // 原始事件类型，用于区分 @消息 和普通消息
   eventType: string
 }
 
-/** 附件信息 */
+// 附件信息
 export interface QqAttachment {
-  /** 附件 URL（用于下载） */
+  // 附件 URL（用于下载）
   url: string
-  /** 内容类型，如 image/png, image/jpeg */
+  // 内容类型，如 image/png, image/jpeg
   contentType: string
-  /** 文件名 */
+  // 文件名
   filename?: string
-  /** 文件大小（字节） */
+  // 文件大小（字节）
   size?: number
 }
 
-/** 发送消息的参数 */
+// 发送消息的参数
 export interface SendMessageParams {
   content: string
-  /** 对于群聊回复，需要传入消息 ID */
+  // 对于群聊回复，需要传入消息 ID
   messageId?: string
-  /** 对于私聊，传入用户 openid */
+  // 对于私聊，传入用户 openid
   userOpenid?: string
-  /** 对于频道，传入频道 id */
+  // 对于频道，传入频道 id
   channelId?: string
-  /** 对于群聊，传入群 openid */
+  // 对于群聊，传入群 openid
   groupOpenid?: string
-  /** 消息来源类型 */
+  // 消息来源类型
   sourceType: 'c2c' | 'group' | 'channel'
 }
 
-/** QQ 按钮交互事件 */
+// QQ 按钮交互事件
 export interface QqInteractionEvent {
-  /** 交互 ID */
+  // 交互 ID
   id: string
-  /** 交互类型，11 = 消息按钮回调 */
+  // 交互类型，11 = 消息按钮回调
   type: number
-  /** 按钮回调数据 */
+  // 按钮回调数据
   data: string
-  /** 触发用户 openid */
+  // 触发用户 openid
   userId: string
-  /** 群 openid（群聊按钮） */
+  // 群 openid（群聊按钮）
   groupOpenid?: string
-  /** 原始消息 ID */
+  // 原始消息 ID
   messageId: string
 }
 
-/** WebSocket 操作码 */
+// WebSocket 操作码
 const enum OpCode {
   DISPATCH = 0,
   HEARTBEAT = 1,
@@ -93,52 +91,80 @@ const enum OpCode {
 let accessToken = ''
 let tokenExpireTime = 0
 
-/** 按目标（群/用户）维护消息序列号，防止 QQ 去重 */
+// 令牌刷新锁：防止并发调用同时刷新多个 token
+let tokenRefreshPromise: Promise<string> | null = null
+
+// 按目标（群/用户）维护消息序列号，防止 QQ 去重
 const msgSeqMap = new Map<string, number>()
+
+// msgSeqMap 最大容量，防止长期运行内存无限增长
+const MSG_SEQ_MAX_SIZE = 10000
 
 function nextMsgSeq(targetKey: string): number {
   const current = msgSeqMap.get(targetKey) || 0
   const next = current + 1
   msgSeqMap.set(targetKey, next)
+
+  // 超出容量时清理一半旧条目
+  if (msgSeqMap.size > MSG_SEQ_MAX_SIZE) {
+    let count = 0
+    for (const key of msgSeqMap.keys()) {
+      msgSeqMap.delete(key)
+      count++
+      if (count >= MSG_SEQ_MAX_SIZE / 2) break
+    }
+  }
+
   return next
 }
 
-/**
- * 获取 QQ Bot access_token
- * token 有效期内复用，避免频繁请求
- */
+// 获取 QQ Bot access_token
+// token 有效期内复用，并发请求共用同一刷新 Promise 避免重复请求
 async function getAccessToken(): Promise<string> {
   const now = Date.now()
   if (accessToken && now < tokenExpireTime) {
     return accessToken
   }
-  try {
-    console.log('[Adapter] 正在获取 access_token...')
-    const resp = await axios.post(QQ_TOKEN_URL, {
-      appId: QQ_APP_ID,
-      clientSecret: QQ_APP_SECRET
-    })
-    const data = resp.data as { access_token: string; expires_in: number }
-    accessToken = data.access_token
-    // 提前 5 分钟过期以留缓冲
-    const expiresIn = data.expires_in || 7200
-    tokenExpireTime = now + (expiresIn - 300) * 1000
-    console.log(`[Adapter] access_token 获取成功，有效期 ${expiresIn}s`)
-    return accessToken
-  } catch (err) {
-    const error = err as Error & { response?: { data: unknown } }
-    console.error('[Adapter] access_token 获取失败:', error.message)
-    if (error.response) {
-      console.error('[Adapter] 响应详情:', JSON.stringify(error.response.data))
-    }
-    throw err
+
+  // 已有刷新进行中则复用
+  if (tokenRefreshPromise) {
+    return tokenRefreshPromise
   }
+
+  tokenRefreshPromise = (async () => {
+    try {
+      console.log('[Adapter] 正在获取 access_token...')
+      const resp = await axios.post(QQ_TOKEN_URL, {
+        appId: QQ_APP_ID,
+        clientSecret: QQ_APP_SECRET
+      })
+      const data = resp.data as { access_token: string; expires_in: number }
+      accessToken = data.access_token
+      // 提前 5 分钟过期以留缓冲
+      const expiresIn = data.expires_in || 7200
+      tokenExpireTime = now + (expiresIn - 300) * 1000
+      console.log(`[Adapter] access_token 获取成功，有效期 ${expiresIn}s`)
+      return accessToken
+    } catch (err) {
+      // 刷新失败时重置状态，允许下次重试
+      accessToken = ''
+      tokenExpireTime = 0
+      const error = err as Error & { response?: { data: unknown } }
+      console.error('[Adapter] access_token 获取失败:', error.message)
+      if (error.response) {
+        console.error('[Adapter] 响应详情:', JSON.stringify(error.response.data))
+      }
+      throw err
+    } finally {
+      tokenRefreshPromise = null
+    }
+  })()
+
+  return tokenRefreshPromise
 }
 
-/**
- * 通过 HTTP 发送消息到 QQ
- * 根据消息来源类型调用不同的发送端点
- */
+// 通过 HTTP 发送消息到 QQ
+// 根据消息来源类型调用不同的发送端点
 export async function sendMessage(params: SendMessageParams): Promise<void> {
   const token = await getAccessToken()
   const headers = {
@@ -179,7 +205,7 @@ export async function sendMessage(params: SendMessageParams): Promise<void> {
   }
 }
 
-/** Markdown 消息参数 */
+// Markdown 消息参数
 export interface SendMarkdownParams {
   markdownContent: string
   messageId?: string
@@ -189,10 +215,8 @@ export interface SendMarkdownParams {
   sourceType: 'c2c' | 'group' | 'channel'
 }
 
-/**
- * 发送 Markdown 消息
- * 使用 msg_type=2，支持标题、加粗、链接等 Markdown 语法
- */
+// 发送 Markdown 消息
+// 使用 msg_type=2，支持标题、加粗、链接等 Markdown 语法
 export async function sendMarkdown(params: SendMarkdownParams): Promise<void> {
   const token = await getAccessToken()
   const headers = {
@@ -229,9 +253,9 @@ export async function sendMarkdown(params: SendMarkdownParams): Promise<void> {
   }
 }
 
-/** 图片消息参数 */
+// 图片消息参数
 export interface SendImageParams {
-  /** 图片 Buffer */
+  // 图片 Buffer
   imageBuffer: Buffer
   messageId?: string
   userOpenid?: string
@@ -239,10 +263,8 @@ export interface SendImageParams {
   sourceType: 'c2c' | 'group'
 }
 
-/**
- * 上传图片并发送到 QQ
- * 先将图片 base64 编码上传到 /files 获取 file_info，再用 msg_type=7 发送
- */
+// 上传图片并发送到 QQ
+// 先将图片 base64 编码上传到 /files 获取 file_info，再用 msg_type=7 发送
 export async function sendImage(params: SendImageParams): Promise<void> {
   const token = await getAccessToken()
 
@@ -315,24 +337,24 @@ export async function sendImage(params: SendImageParams): Promise<void> {
   }
 }
 
-/** 键盘按钮定义 */
+// 键盘按钮定义
 export interface KeyboardButton {
-  /** 按钮唯一 ID */
+  // 按钮唯一 ID
   id: string
-  /** 按钮显示文本 */
+  // 按钮显示文本
   label: string
-  /** 按钮点击后显示文本 */
+  // 按钮点击后显示文本
   visitedLabel: string
-  /** 回调数据 */
+  // 回调数据
   data: string
 }
 
-/** 键盘行定义 */
+// 键盘行定义
 export interface KeyboardRow {
   buttons: KeyboardButton[]
 }
 
-/** 键盘 Markdown 消息参数 */
+// 键盘 Markdown 消息参数
 export interface SendMarkdownWithKeyboardParams {
   markdownContent: string
   keyboard: KeyboardRow[]
@@ -340,14 +362,12 @@ export interface SendMarkdownWithKeyboardParams {
   userOpenid?: string
   groupOpenid?: string
   sourceType: 'c2c' | 'group'
-  /** 是否允许所有人点击按钮（默认仅审核人员） */
+  // 是否允许所有人点击按钮（默认仅审核人员）
   allowAllClick?: boolean
 }
 
-/**
- * 发送带键盘按钮的 Markdown 消息
- * 返回消息 ID 用于后续追踪
- */
+// 发送带键盘按钮的 Markdown 消息
+// 返回消息 ID 用于后续追踪
 export async function sendMarkdownWithKeyboard(
   params: SendMarkdownWithKeyboardParams
 ): Promise<string> {
@@ -412,10 +432,8 @@ export async function sendMarkdownWithKeyboard(
   }
 }
 
-/**
- * 获取 WebSocket 网关地址
- * 使用 bot 专用端点 /gateway/bot
- */
+// 获取 WebSocket 网关地址
+// 使用 bot 专用端点 /gateway/bot
 async function getGatewayUrl(): Promise<string> {
   const token = await getAccessToken()
   console.log('[Adapter] 正在获取 WebSocket 网关地址...')
@@ -427,24 +445,22 @@ async function getGatewayUrl(): Promise<string> {
   return data.url
 }
 
-/** 消息事件处理回调类型 */
+// 消息事件处理回调类型
 export type EventHandler = (event: QqMessageEvent) => Promise<void>
 
-/** 交互事件处理回调类型 */
-export type InteractionHandler = (event: QqInteractionEvent) => void
+// 交互事件处理回调类型
+export type InteractionHandler = (event: QqInteractionEvent) => Promise<void>
 
-/** 交互事件处理器，由 event.ts 注册 */
-let onInteraction: InteractionHandler = () => {}
+// 交互事件处理器，由 event.ts 注册
+let onInteraction: InteractionHandler = async () => {}
 
-/** 注册交互事件处理器 */
+// 注册交互事件处理器
 export function setInteractionHandler(h: InteractionHandler): void {
   onInteraction = h
 }
 
-/**
- * 启动 WebSocket 长连接
- * 处理鉴权、心跳、事件分发
- */
+// 启动 WebSocket 长连接
+// 处理鉴权、心跳、事件分发
 export function startWebSocket(onEvent: EventHandler): void {
   let ws: WebSocket | null = null
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -453,13 +469,13 @@ export function startWebSocket(onEvent: EventHandler): void {
   let seq: number | null = null
   let sessionId: string | null = null
 
-  /** 清理定时器 */
+  // 清理定时器
   function clearTimers(): void {
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
   }
 
-  /** 启动心跳 */
+  // 启动心跳
   function startHeartbeat(wsInstance: WebSocket, intervalMs: number): void {
     clearTimers()
     heartbeatTimer = setInterval(() => {
@@ -469,10 +485,8 @@ export function startWebSocket(onEvent: EventHandler): void {
     }, intervalMs)
   }
 
-  /**
-   * 解析收到的所有事件类型，输出日志辅助排查
-   * 仅处理消息类事件，其余事件（READY 等）仅记录
-   */
+  // 解析收到的所有事件类型，输出日志辅助排查
+  // 仅处理消息类事件，其余事件（READY 等）仅记录
   function parseEvent(payload: Record<string, unknown>): QqMessageEvent | null {
     const eventType = String(payload['t'] || '')
     const data = (payload['d'] || {}) as Record<string, unknown>
@@ -573,7 +587,7 @@ export function startWebSocket(onEvent: EventHandler): void {
     return null
   }
 
-  /** 连接 WebSocket */
+  // 连接 WebSocket
   async function connect(): Promise<void> {
     clearTimers()
     try {
@@ -622,7 +636,7 @@ export function startWebSocket(onEvent: EventHandler): void {
 
           startHeartbeat(ws!, heartbeatInterval)
         } else if (op === OpCode.DISPATCH) {
-          seq = (payload['s'] as number) ?? seq
+          seq = (payload['s'] as number | null | undefined) ?? seq
           const d = payload['d'] as Record<string, unknown> | undefined
           if (d && d['session_id'] !== undefined) {
             sessionId = String(d['session_id'])
@@ -660,7 +674,9 @@ export function startWebSocket(onEvent: EventHandler): void {
                 `[Adapter] 收到按钮交互 | user=${ie.userId}` +
                 ` | data="${ie.data}"`
               )
-              onInteraction(ie)
+               onInteraction(ie).catch((err: Error) => {
+                 console.error('[Adapter] 交互事件处理失败:', err.message)
+               })
             }
           } else {
             const event = parseEvent(payload)
@@ -720,9 +736,7 @@ export function startWebSocket(onEvent: EventHandler): void {
 
 export { getAccessToken }
 
-/**
- * 启动时做一次连通性检查：获取 token -> 拉网关
- */
+// 启动时做一次连通性检查：获取 token -> 拉网关
 export async function healthCheck(): Promise<boolean> {
   try {
     await getAccessToken()

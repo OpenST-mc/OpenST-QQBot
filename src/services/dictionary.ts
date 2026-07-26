@@ -1,12 +1,10 @@
-/**
- * 专业术语知识库服务
- * 加载 public/database/dictionary/config.json + entries/ + zh-translations.json
- * 用于 AI prompt 术语匹配与中文知识注入
- */
+// 专业术语知识库服务
+// 加载 public/database/dictionary/config.json + entries/ + zh-translations.json
+// 用于 AI prompt 术语匹配与中文知识注入
 import fs from 'fs'
 import path from 'path'
 
-/** 词条配置（来自 config.json） */
+// 词条配置（来自 config.json）
 interface EntryConfig {
   id: string
   terms: string[]
@@ -14,7 +12,7 @@ interface EntryConfig {
   updatedAt: number
 }
 
-/** 中译词条 */
+// 中译词条
 interface ZhEntry {
   id: string
   terms: string[]
@@ -22,7 +20,7 @@ interface ZhEntry {
   definitionZh: string
 }
 
-/** 对外暴露的词条数据结构 */
+// 对外暴露的词条数据结构
 export interface DictionaryEntry {
   id: string
   terms: string[]
@@ -30,17 +28,15 @@ export interface DictionaryEntry {
   definitionZh: string
 }
 
-/** 缓存 */
+// 缓存
 let entryConfigs: EntryConfig[] | null = null
 let zhEntries: ZhEntry[] | null = null
 
-/** 路径常量 */
+// 路径常量
 const CONFIG_PATH = path.join('public', 'database', 'dictionary', 'config.json')
 const ZH_PATH = path.join('public', 'database', 'dictionary', 'zh-translations.json')
 
-/**
- * 加载 config.json 词条索引
- */
+// 加载 config.json 词条索引
 function loadConfig(): EntryConfig[] {
   if (entryConfigs) {
     return entryConfigs
@@ -56,9 +52,7 @@ function loadConfig(): EntryConfig[] {
   }
 }
 
-/**
- * 加载中文翻译词条
- */
+// 加载中文翻译词条
 function loadZhEntries(): ZhEntry[] {
   if (zhEntries) {
     return zhEntries
@@ -74,11 +68,7 @@ function loadZhEntries(): ZhEntry[] {
   }
 }
 
-/**
- * 根据用户输入匹配字典中的术语（支持中英文）
- * @param userInput 用户提问原文
- * @returns 匹配到的词条（含中文定义）
- */
+// 根据用户输入匹配字典中的术语（支持中英文）
 export function matchDictionaryTerms(userInput: string): DictionaryEntry[] {
   const configs = loadConfig()
   const zhList = loadZhEntries()
@@ -128,9 +118,7 @@ export function matchDictionaryTerms(userInput: string): DictionaryEntry[] {
   return Array.from(matched.values())
 }
 
-/**
- * 获取所有中文词典条目（不含匹配逻辑）
- */
+// 获取所有中文词典条目（不含匹配逻辑）
 export function getAllZhEntries(): Array<{ label: string; text: string }> {
   const zhList = loadZhEntries()
   return zhList.map((z) => ({
@@ -139,14 +127,12 @@ export function getAllZhEntries(): Array<{ label: string; text: string }> {
   }))
 }
 
-/** 所有词条摘要缓存 */
+// 所有词条摘要缓存
 let allSummariesCache: string | null = null
 
-/**
- * 获取所有词条的中文简介
- * 格式：「术语(中文名): 简要说明」
- * 用于 AI 系统提示词注入
- */
+// 获取所有词条的中文简介
+// 格式：「术语(中文名): 简要说明」
+// 用于 AI 系统提示词注入
 export function getAllTermSummaries(): string {
   if (allSummariesCache) {
     return allSummariesCache

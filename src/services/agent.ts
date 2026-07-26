@@ -1,12 +1,10 @@
-/**
- * Agent 模型服务
- * 当需要深度分析文件时，启动与主模型同型号的 DeepSeek 实例
- * 接收主模型委托的任务，读取 source/ 下的文件并返回分析结果
- */
+// Agent 模型服务
+// 当需要深度分析文件时，启动与主模型同型号的 DeepSeek 实例
+// 接收主模型委托的任务，读取 source/ 下的文件并返回分析结果
 import { askAi } from './ai'
 import { SourceFile } from './source'
 
-/** Agent 系统提示词 */
+// Agent 系统提示词
 const AGENT_SYSTEM_PROMPT =
   '你是一个文件分析助手。根据提供的文件内容，提取与用户问题相关的关键信息。\n' +
   '要求：\n' +
@@ -15,12 +13,7 @@ const AGENT_SYSTEM_PROMPT =
   '- 用中文回答\n' +
   '- 回答控制在 1500 字以内，重点突出'
 
-/**
- * 启动 agent 模型分析文件
- * @param query  主模型指定的分析任务
- * @param files  匹配到的文件列表
- * @returns  agent 的分析结果
- */
+// 启动 agent 模型分析文件
 export async function analyzeSource(
   query: string,
   files: SourceFile[]

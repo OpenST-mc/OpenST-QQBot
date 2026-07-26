@@ -1,16 +1,14 @@
-/**
- * /ask 命令处理器
- * 流程：
- * 1. 加载该用户的独立对话上下文 + 检查待学习标记
- * 2. 匹配字典术语（public/database/dictionary）+ CSV 词汇表
- * 3. 将字典摘要注入 AI 系统提示词
- * 4. 读取 agent/AGENTS.md 作为 AI 行为规则
- * 5. 从本地 public/database/database.json 读取机器数据，按查询匹配候选机器
- * 6. 调用 DeepSeek AI 生成回答（带该用户的历史上下文）
- * 7. 如有机器推荐，拼接待推荐链接返回用户
- * 8. 检测回答质量：若无匹配数据则标记待学习，并触发联网搜索补充
- * 9. 保存本轮对话到用户上下文
- */
+// /ask 命令处理器
+// 流程：
+// 1. 加载该用户的独立对话上下文 + 检查待学习标记
+// 2. 匹配字典术语（public/database/dictionary）+ CSV 词汇表
+// 3. 将字典摘要注入 AI 系统提示词
+// 4. 读取 agent/AGENTS.md 作为 AI 行为规则
+// 5. 从本地 public/database/database.json 读取机器数据，按查询匹配候选机器
+// 6. 调用 DeepSeek AI 生成回答（带该用户的历史上下文）
+// 7. 如有机器推荐，拼接待推荐链接返回用户
+// 8. 检测回答质量：若无匹配数据则标记待学习，并触发联网搜索补充
+// 9. 保存本轮对话到用户上下文
 import fs from 'fs'
 import { QqMessageEvent, sendMessage, sendMarkdown } from '../bot/adapter'
 import { askAiWithRecommendations, askAi } from '../services/ai'
@@ -40,7 +38,7 @@ import { searchSourceFiles } from '../services/source'
 import { analyzeSource } from '../services/agent'
 import { webSearch } from '../services/search'
 
-/** 不确定性关键词（AI 表示无法回答时的常用措辞） */
+// 不确定性关键词（AI 表示无法回答时的常用措辞）
 const UNCERTAINTY_PATTERNS = [
   '数据库中没有',
   '暂无相关',
@@ -323,6 +321,8 @@ export async function handleAsk(
       if (result) {
         console.log(`[Ask] 主动学习完成: ${result.slice(0, 60)}...`)
       }
+    }).catch((err: Error) => {
+      console.warn('[Ask] 主动学习失败:', err.message)
     })
   }
 
@@ -340,9 +340,7 @@ export async function handleAsk(
   })
 }
 
-/**
- * 加载已学知识库（database.csv），返回 topic,content 列表
- */
+// 加载已学知识库（database.csv），返回 topic,content 列表
 function loadLearnedKnowledge(): Array<{ topic: string; content: string }> {
   const path = 'public/database/database.csv'
   if (!fs.existsSync(path)) return []
@@ -363,9 +361,7 @@ function loadLearnedKnowledge(): Array<{ topic: string; content: string }> {
   return result
 }
 
-/**
- * 简易 CSV 行解析（支持引号内逗号和转义引号）
- */
+// 简易 CSV 行解析（支持引号内逗号和转义引号）
 function parseSimpleCsvLine(line: string): string[] | null {
   const result: string[] = []
   let current = ''

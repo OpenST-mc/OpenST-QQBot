@@ -1,19 +1,17 @@
-/**
- * 数据服务层
- * 负责：CSV 词汇表解析、本地 JSON 数据库读取
- * 不包含业务逻辑，仅做数据读取与格式转换
- */
+// 数据服务层
+// 负责：CSV 词汇表解析、本地 JSON 数据库读取
+// 不包含业务逻辑，仅做数据读取与格式转换
 import fs from 'fs'
 import { parse } from 'csv-parse/sync'
 import { GLOSSARY_CSV_PATH, DATABASE_PATH } from '../config'
 
-/** 词汇表条目 */
+// 词汇表条目
 export interface GlossaryEntry {
   term: string
   definition: string
 }
 
-/** 机器数据条目 */
+// 机器数据条目
 export interface MachineEntry {
   name: string
   subId: string
@@ -22,10 +20,8 @@ export interface MachineEntry {
   description: string
 }
 
-/**
- * 从 CSV 文件加载术语词汇表
- * 期望表头：term, definition
- */
+// 从 CSV 文件加载术语词汇表
+// 期望表头：term, definition
 export function loadGlossary(): GlossaryEntry[] {
   const raw = fs.readFileSync(GLOSSARY_CSV_PATH, 'utf-8')
   const records = parse(raw, {
@@ -39,12 +35,7 @@ export function loadGlossary(): GlossaryEntry[] {
   }))
 }
 
-/**
- * 在词汇表中模糊匹配用户输入中出现的术语
- * @param userInput 用户输入文本
- * @param glossary 词汇表
- * @returns 匹配到的术语条目列表
- */
+// 在词汇表中模糊匹配用户输入中出现的术语
 export function matchGlossaryTerms(
   userInput: string,
   glossary: GlossaryEntry[]
@@ -66,11 +57,9 @@ export function matchGlossaryTerms(
   return matched
 }
 
-/**
- * 从本地文件读取机器数据库 JSON
- * 数据库格式：[{ id, name, author, tags: [...], description: "...", sub_id: "..." }]
- * 注意：此文件只读，不允许修改
- */
+// 从本地文件读取机器数据库 JSON
+// 数据库格式：[{ id, name, author, tags: [...], description: "...", sub_id: "..." }]
+// 注意：此文件只读，不允许修改
 export function loadMachineDatabase(): MachineEntry[] {
   const raw = fs.readFileSync(DATABASE_PATH, 'utf-8')
   const data = JSON.parse(raw) as Array<{
@@ -90,13 +79,8 @@ export function loadMachineDatabase(): MachineEntry[] {
   }))
 }
 
-/**
- * 根据用户输入中的关键词匹配机器
- * 匹配范围：name、tags、author
- * @param userInput 用户提问
- * @param machines 数据库中所有机器
- * @returns 匹配到的机器列表（按匹配度排序，最多返回 5 台）
- */
+// 根据用户输入中的关键词匹配机器
+// 匹配范围：name、tags、author
 export function searchMachines(
   userInput: string,
   machines: MachineEntry[]

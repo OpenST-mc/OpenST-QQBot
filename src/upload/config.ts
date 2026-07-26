@@ -1,4 +1,4 @@
-/** 上传分类配置，与 OpenST 网站投稿标签系统对齐 */
+// 上传分类配置，与 OpenST 网站投稿标签系统对齐
 export const TAG_CONFIG: Record<string, Record<string, string[]> | string[]> = {
   '非编码存储科技': {
     '全物品单片': ['8箱单片', '10箱单片', '其他单片'],

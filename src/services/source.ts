@@ -1,24 +1,22 @@
-/**
- * 自适应文件搜索服务
- * 在 public/database/source/ 目录下搜索——不限文件格式
- * 文本文件按内容匹配，二进制文件自动跳过
- */
+// 自适应文件搜索服务
+// 在 public/database/source/ 目录下搜索——不限文件格式
+// 文本文件按内容匹配，二进制文件自动跳过
 import fs from 'fs'
 import path from 'path'
 import { SOURCE_DATABASE_PATH } from '../config'
 
-/** 搜索结果 */
+// 搜索结果
 export interface SourceFile {
-  /** 相对于 source/ 的文件路径 */
+  // 相对于 source/ 的文件路径
   path: string
-  /** 文件内容（最多返回 8000 字符） */
+  // 文件内容（最多返回 8000 字符）
   content: string
 }
 
-/** 单文件最大返回字符数 */
+// 单文件最大返回字符数
 const MAX_CONTENT_LENGTH = 8000
 
-/** 常见二进制/图片扩展名（跳过内容读取，仅文件名匹配） */
+// 常见二进制/图片扩展名（跳过内容读取，仅文件名匹配）
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.ico', '.svgz',
   '.zip', '.jar', '.7z', '.gz', '.tar', '.rar',
@@ -28,9 +26,7 @@ const BINARY_EXTENSIONS = new Set([
   '.class', '.bin', '.dat', '.ttf', '.woff', '.woff2', '.eot'
 ])
 
-/**
- * 递归收集 source/ 下所有文件，不限格式
- */
+// 递归收集 source/ 下所有文件，不限格式
 function collectFiles(dir: string, baseDir: string): string[] {
   const results: string[] = []
   if (!fs.existsSync(dir)) return results
@@ -50,18 +46,14 @@ function collectFiles(dir: string, baseDir: string): string[] {
   return results
 }
 
-/**
- * 判断是否为可读文本文件
- */
+// 判断是否为可读文本文件
 function isReadableText(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase()
   if (BINARY_EXTENSIONS.has(ext)) return false
   return true
 }
 
-/**
- * 自适应搜索：不限格式，文本文件按内容匹配，二进制文件仅按文件名匹配
- */
+// 自适应搜索：不限格式，文本文件按内容匹配，二进制文件仅按文件名匹配
 export function searchSourceFiles(query: string): SourceFile[] {
   const baseDir = path.resolve(SOURCE_DATABASE_PATH)
   if (!fs.existsSync(baseDir)) {
@@ -133,9 +125,7 @@ export function searchSourceFiles(query: string): SourceFile[] {
   return results
 }
 
-/**
- * 列出源码目录下所有文件（供 agent 了解文件结构）
- */
+// 列出源码目录下所有文件（供 agent 了解文件结构）
 export function listSourceFiles(): string[] {
   const baseDir = path.resolve(SOURCE_DATABASE_PATH)
   if (!fs.existsSync(baseDir)) return []

@@ -1,12 +1,10 @@
-/**
- * 投稿审核相关命令
- * /list - 查看已认领的稿件，附带通过/拒稿按钮
- */
+// 投稿审核相关命令
+// /list - 查看已认领的稿件，附带通过/拒稿按钮
 import { QqMessageEvent, sendMarkdownWithKeyboard, sendMessage } from '../bot/adapter'
 import { getClaimedByUser } from './state'
 import { isReviewer } from './reviewer'
 
-/** /list 命令：列出当前用户已认领的稿件 */
+// /list 命令：列出当前用户已认领的稿件
 export async function handleList(event: QqMessageEvent): Promise<void> {
   const userOpenid = event.author.id
   const groupOpenid = event.groupOpenid || ''

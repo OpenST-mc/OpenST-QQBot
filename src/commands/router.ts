@@ -1,10 +1,8 @@
-/**
- * 命令路由器
- * 显式注册所有命令，禁止 if-else 链式分发
- * 解析消息内容，匹配命令前缀，调用对应处理器
- * 群组消息受 QQ_GROUP_WHITELIST 限制，私聊受 QQ_USER_WHITELIST 限制
- * /ping 始终放行，用于诊断
- */
+// 命令路由器
+// 显式注册所有命令，禁止 if-else 链式分发
+// 解析消息内容，匹配命令前缀，调用对应处理器
+// 群组消息受 QQ_GROUP_WHITELIST 限制，私聊受 QQ_USER_WHITELIST 限制
+// /ping 始终放行，用于诊断
 import { QqMessageEvent, QqInteractionEvent, sendMessage } from '../bot/adapter'
 import { QQ_GROUP_WHITELIST, QQ_USER_WHITELIST, QQ_LEARN_WHITELIST } from '../config'
 import { handleAsk } from './ask'
@@ -14,13 +12,13 @@ import { handleSearch } from './search'
 import { handleList } from '../submissions/commands'
 import { handleInteraction } from '../submissions/interact'
 
-/** 命令处理器：接收事件 + 命令参数，自行回复消息 */
+// 命令处理器：接收事件 + 命令参数，自行回复消息
 type CommandHandler = (
   event: QqMessageEvent,
   args: string
 ) => Promise<void>
 
-/** 命令注册表 */
+// 命令注册表
 const commandMap: Record<string, CommandHandler> = {
   '/ask': handleAsk,
   '/upload': handleUpload,
@@ -30,7 +28,7 @@ const commandMap: Record<string, CommandHandler> = {
   '/list': handleList
 }
 
-/** /ping 连通测试 + 标识信息诊断 */
+// /ping 连通测试 + 标识信息诊断
 async function pingHandler(
   event: QqMessageEvent,
   _args: string
@@ -61,36 +59,28 @@ async function pingHandler(
   })
 }
 
-/** 命令前缀识别正则：匹配任意 /xxx 命令 */
+// 命令前缀识别正则：匹配任意 /xxx 命令
 const COMMAND_REGEX = /^\/(\S+)\b/
 
-/**
- * 首次收到私聊消息时，打印用户 openid 以方便配置白名单
- */
+const LOGGED_MAX = 10000
+let loggedCount = 0
+
+// 诊断日志专用：首次消息时打印标识信息方便配置白名单，防无限增长
 const loggedUsers = new Set<string>()
 function logUserInfo(event: QqMessageEvent): void {
-  if (event.sourceType !== 'c2c') {
-    return
-  }
+  if (loggedUsers.size >= LOGGED_MAX) return
+  if (event.sourceType !== 'c2c') return
   const userOpenid = event.author.id
-  if (loggedUsers.has(userOpenid)) {
-    return
-  }
+  if (loggedUsers.has(userOpenid)) return
   loggedUsers.add(userOpenid)
   console.log(`[Router] 新私聊用户 | user_openid=${userOpenid}`)
 }
 
-/**
- * 首次收到某群消息时，打印其标识信息以方便配置白名单
- */
 const loggedGroups = new Set<string>()
 function logGroupInfo(event: QqMessageEvent): void {
-  if (event.sourceType !== 'group' || !event.groupOpenid) {
-    return
-  }
-  if (loggedGroups.has(event.groupOpenid)) {
-    return
-  }
+  if (loggedGroups.size >= LOGGED_MAX) return
+  if (event.sourceType !== 'group' || !event.groupOpenid) return
+  if (loggedGroups.has(event.groupOpenid)) return
   loggedGroups.add(event.groupOpenid)
   console.log(
     `[Router] 新群消息 | group_openid=${event.groupOpenid}` +
@@ -98,11 +88,9 @@ function logGroupInfo(event: QqMessageEvent): void {
   )
 }
 
-/**
- * 检查命令来源是否在白名单内
- * 群聊查 QQ_GROUP_WHITELIST，私聊查 QQ_USER_WHITELIST
- * 对应白名单为空时不限制
- */
+// 检查命令来源是否在白名单内
+// 群聊查 QQ_GROUP_WHITELIST，私聊查 QQ_USER_WHITELIST
+// 对应白名单为空时不限制
 function isAllowed(event: QqMessageEvent): boolean {
   if (event.sourceType === 'group') {
     if (QQ_GROUP_WHITELIST.size === 0) {
@@ -123,11 +111,9 @@ function isAllowed(event: QqMessageEvent): boolean {
   return QQ_USER_WHITELIST.has(event.author.id)
 }
 
-/**
- * 检查 /learn 命令专用白名单
- * 支持群号、group_openid、用户 openid 匹配
- * 白名单为空时不限制
- */
+// 检查 /learn 命令专用白名单
+// 支持群号、group_openid、用户 openid 匹配
+// 白名单为空时不限制
 function isLearnAllowed(event: QqMessageEvent): boolean {
   if (QQ_LEARN_WHITELIST.size === 0) {
     return true
@@ -146,10 +132,8 @@ function isLearnAllowed(event: QqMessageEvent): boolean {
   return false
 }
 
-/**
- * 路由入口，从 event 层调用
- * 解析消息内容中的命令并分发
- */
+// 路由入口，从 event 层调用
+// 解析消息内容中的命令并分发
 export async function routeMessage(event: QqMessageEvent): Promise<void> {
   const content = event.content.trim()
   const refContent = event.referencedContent || ''
@@ -191,7 +175,9 @@ export async function routeMessage(event: QqMessageEvent): Promise<void> {
       groupOpenid: event.groupOpenid,
       messageId: ''
     }
-    handleInteraction(interaction)
+    handleInteraction(interaction).catch((err: Error) => {
+      console.error('[Router] 移动端按钮交互处理失败:', err.message)
+    })
     return
   }
   console.log(
@@ -219,7 +205,7 @@ export async function routeMessage(event: QqMessageEvent): Promise<void> {
       return
     }
 
-    // 私聊：自动走 /ask
+    // 频道：自动走 /ask
     console.log(`[Router] Chat: "${effective.slice(0, 50)}"`)
     try {
       await handleAsk(event, effective)

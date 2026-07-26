@@ -1,12 +1,10 @@
-/**
- * 附件解析服务
- * 下载 QQ 消息附件，图片用 Tesseract OCR，文本文件直接读取
- */
+// 附件解析服务
+// 下载 QQ 消息附件，图片用 Tesseract OCR，文本文件直接读取
 import axios from 'axios'
 import { createWorker, Worker } from 'tesseract.js'
 import { QqAttachment } from '../bot/adapter'
 
-/** OCR Worker 缓存 */
+// OCR Worker 缓存
 let ocrWorker: Worker | null = null
 
 async function getOcrWorker(): Promise<Worker> {
@@ -20,9 +18,7 @@ async function getOcrWorker(): Promise<Worker> {
   return w
 }
 
-/**
- * OCR 识别图片中的文字
- */
+// OCR 识别图片中的文字
 async function ocrImage(imageUrl: string): Promise<string> {
   // 下载图片
   const imgResp = await axios.get(imageUrl, {
@@ -40,9 +36,7 @@ async function ocrImage(imageUrl: string): Promise<string> {
   return text
 }
 
-/**
- * 下载文本文件内容
- */
+// 下载文本文件内容
 async function downloadTextFile(fileUrl: string): Promise<string> {
   const resp = await axios.get(fileUrl, {
     responseType: 'text',
@@ -52,7 +46,7 @@ async function downloadTextFile(fileUrl: string): Promise<string> {
   return String(resp.data || '').slice(0, 5000)
 }
 
-/** 支持的文本文件扩展名 */
+// 支持的文本文件扩展名
 const TEXT_EXT = /\.(txt|md|json|csv|log|yml|yaml|xml|html|js|ts|py|java|cpp|litematic|schem)$/i
 
 function isTextAttachment(att: QqAttachment): boolean {
@@ -61,9 +55,7 @@ function isTextAttachment(att: QqAttachment): boolean {
   return false
 }
 
-/**
- * 解析消息中的所有附件
- */
+// 解析消息中的所有附件
 export async function parseAttachments(
   attachments: QqAttachment[]
 ): Promise<string> {
@@ -113,9 +105,7 @@ export async function parseAttachments(
   return results.join('\n\n---\n\n')
 }
 
-/**
- * 清理 OCR Worker
- */
+// 清理 OCR Worker
 export async function closeOcr(): Promise<void> {
   if (ocrWorker) {
     await ocrWorker.terminate()

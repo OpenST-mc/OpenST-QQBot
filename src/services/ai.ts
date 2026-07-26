@@ -1,8 +1,6 @@
-/**
- * DeepSeek AI 服务层
- * 业务逻辑通过本层调用 AI，不直接访问 DeepSeek API
- * 负责：prompt 构建、对话请求、响应解析、多轮上下文管理
- */
+// DeepSeek AI 服务层
+// 业务逻辑通过本层调用 AI，不直接访问 DeepSeek API
+// 负责：prompt 构建、对话请求、响应解析、多轮上下文管理
 import axios from 'axios'
 import {
   DEEPSEEK_API_KEY,
@@ -13,22 +11,20 @@ import {
 import { ContextMessage } from './context'
 import { MachineEntry } from './data'
 
-/** AI 服务返回结构 */
+// AI 服务返回结构
 export interface AiResponse {
   answer: string
-  /** 推荐的机器 sub_id 列表（已通过数据库验证） */
+  // 推荐的机器 sub_id 列表（已通过数据库验证）
   recommendations: string[]
 }
 
-/** 消息格式（兼容 DeepSeek API） */
+// 消息格式（兼容 DeepSeek API）
 interface ApiMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
 }
 
-/**
- * 单次 AI 问答（带可选上下文）
- */
+// 单次 AI 问答（带可选上下文）
 export async function askAi(
   systemPrompt: string,
   userPrompt: string,
@@ -68,9 +64,7 @@ export async function askAi(
   return String(message?.['content'] || '')
 }
 
-/**
- * 构建机器列表提示（紧凑格式：name + 作者 + 标签 + 链接）
- */
+// 构建机器列表提示（紧凑格式：name + 作者 + 标签 + 链接）
 function buildMachinePrompt(machines: MachineEntry[]): string {
   return machines
     .map(
@@ -84,16 +78,9 @@ function buildMachinePrompt(machines: MachineEntry[]): string {
     .join('\n')
 }
 
-/**
- * 带机器推荐的 AI 问答
- * 将数据库中的机器列表（含作者、标签）注入 prompt，AI 从中选取推荐
- * AI 回复后从答案中匹配实际的 sub_id，确保链接正确
- * @param systemPrompt 系统提示词
- * @param userPrompt 用户问题
- * @param allMachines 数据库中所有机器
- * @param matchedMachines 根据查询关键词匹配到的候选机器（含描述）
- * @param history 该用户的历史对话（可选）
- */
+// 带机器推荐的 AI 问答
+// 将数据库中的机器列表（含作者、标签）注入 prompt，AI 从中选取推荐
+// AI 回复后从答案中匹配实际的 sub_id，确保链接正确
 export async function askAiWithRecommendations(
   systemPrompt: string,
   userPrompt: string,

@@ -1,11 +1,9 @@
-/**
- * 审核人员管理
- * 负载均衡算法：按当前认领数升序分组，同负载组内随机选取
- */
+// 审核人员管理
+// 检查用户是否为审核人员 + 获取最闲审核人员列表
 import { SUBMISSIONS_REVIEWERS, SUBMISSIONS_AT_COUNT } from './config'
 import { getClaimedCount } from './state'
 
-/** 获取当前最空闲的审核人员列表（最少负载优先，同负载随机） */
+// 获取当前最空闲的审核人员列表（最少负载优先，同负载随机）
 export function getIdleReviewers(): string[] {
   const reviewers = Array.from(SUBMISSIONS_REVIEWERS)
   if (reviewers.length === 0) return []
@@ -54,13 +52,13 @@ export function getIdleReviewers(): string[] {
   return result
 }
 
-/** 检查用户是否为审核人员 */
+// 检查用户是否为审核人员
 export function isReviewer(userOpenid: string): boolean {
   if (SUBMISSIONS_REVIEWERS.size === 0) return false
   return SUBMISSIONS_REVIEWERS.has(userOpenid)
 }
 
-/** 获取审核人员数量 */
+// 获取审核人员数量
 export function getReviewerCount(): number {
   return SUBMISSIONS_REVIEWERS.size
 }
