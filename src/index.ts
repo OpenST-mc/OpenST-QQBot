@@ -9,6 +9,7 @@ import { closeOcr } from './services/attachment'
 import { warmupEmbedding } from './services/embeddings'
 import { initSubmissions, shutdownSubmissions } from './submissions'
 import { shutdownContext } from './services/context'
+import { UPLOAD_FRONTEND_URL } from './config'
 
 // 初始化并启动所有服务
 async function main(): Promise<void> {
@@ -23,6 +24,11 @@ async function main(): Promise<void> {
   }
   if (!process.env['DEEPSEEK_API_KEY']) {
     console.warn('[Index] 警告: 未设置 DEEPSEEK_API_KEY，/ask 命令将不可用')
+  }
+  if (UPLOAD_FRONTEND_URL && !process.env['UPLOAD_SECRET']) {
+    console.warn(
+      '[Index] 警告: 已配置 UPLOAD_FRONTEND_URL 但未设置 UPLOAD_SECRET，/upload 命令将无法生成令牌'
+    )
   }
 
   // 注册全局消息处理器：事件 -> 路由 -> 命令
