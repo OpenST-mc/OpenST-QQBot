@@ -3,7 +3,7 @@
  * 接收 QQ 适配层传来的事件，路由到对应处理器
  * 本层只负责转发，不做业务逻辑
  */
-import { QqMessageEvent } from './adapter'
+import { QqMessageEvent, QqInteractionEvent, setInteractionHandler } from './adapter'
 
 /** 消息处理器签名 */
 export type MessageHandler = (event: QqMessageEvent) => Promise<void>
@@ -34,4 +34,14 @@ export async function handleEvent(event: QqMessageEvent): Promise<void> {
     console.error('[Event] 消息处理失败:', error.message)
     // 错误在 router 层统一捕获，不抛出
   }
+}
+
+/**
+ * 注册交互事件处理器
+ * 委托给 adapter 层的 setInteractionHandler
+ */
+export function registerInteractionHandler(
+  h: (event: QqInteractionEvent) => void
+): void {
+  setInteractionHandler(h)
 }

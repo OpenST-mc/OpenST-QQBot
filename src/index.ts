@@ -9,6 +9,7 @@ import { handleEvent, registerHandler } from './bot/event'
 import { routeMessage } from './commands/router'
 import { closeOcr } from './services/attachment'
 import { warmupEmbedding } from './services/embeddings'
+import { initSubmissions, shutdownSubmissions } from './submissions'
 
 /**
  * 初始化并启动所有服务
@@ -33,6 +34,9 @@ async function main(): Promise<void> {
   // 预热语义搜索模型（Sentence-BERT，首次需下载 ~470MB）
   await warmupEmbedding()
 
+  // 初始化投稿审核系统（轮询 GitHub Issues + 交互事件）
+  initSubmissions()
+
   // 启动前做连通性检查：获取 token -> 拉网关
   const ok = await healthCheck()
   if (!ok) {
@@ -50,12 +54,14 @@ async function main(): Promise<void> {
 // 优雅退出
 process.on('SIGINT', async () => {
   console.log('[Index] 收到退出信号')
+  shutdownSubmissions()
   await closeOcr()
   process.exit(0)
 })
 
 process.on('SIGTERM', async () => {
   console.log('[Index] 收到终止信号')
+  shutdownSubmissions()
   await closeOcr()
   process.exit(0)
 })
