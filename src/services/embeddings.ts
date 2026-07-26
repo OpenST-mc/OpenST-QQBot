@@ -1,30 +1,28 @@
-/**
- * Sentence-BERT 语义搜索服务
- * 使用 @xenova/transformers 在 Node.js 本地运行，无需 Python
- * 模型：paraphrase-multilingual-MiniLM-L12-v2（支持中文，~470MB）
- * 用途：对术语表、词典、社区知识库做语义匹配，不负责机器搜索
- *
- * 国内网络环境配置：
- *   默认下载源为 hf-mirror.com，并自动通过本地代理(Clash 7890)下载
- *   HTTPS_PROXY=http://127.0.0.1:端口   指定代理端口（默认 7890）
- *   EMBEDDING_MODEL_MIRROR=https://...  覆盖下载镜像源
- *   EMBEDDING_MODEL_LOCAL=./models      使用本地预下载模型（离线，优先级最高）
- *     目录结构: ./models/Xenova/paraphrase-multilingual-MiniLM-L12-v2/
- *     可从 https://hf-mirror.com/Xenova/paraphrase-multilingual-MiniLM-L12-v2 手动下载
- */
+// Sentence-BERT 语义搜索服务
+// 使用 @xenova/transformers 在 Node.js 本地运行，无需 Python
+// 模型：paraphrase-multilingual-MiniLM-L12-v2（支持中文，~470MB）
+// 用途：对术语表、词典、社区知识库做语义匹配，不负责机器搜索
+//
+// 国内网络环境配置：
+//   默认下载源为 hf-mirror.com，并自动通过本地代理(Clash 7890)下载
+//   HTTPS_PROXY=http://127.0.0.1:端口   指定代理端口（默认 7890）
+//   EMBEDDING_MODEL_MIRROR=https://...  覆盖下载镜像源
+//   EMBEDDING_MODEL_LOCAL=./models      使用本地预下载模型（离线，优先级最高）
+//     目录结构: ./models/Xenova/paraphrase-multilingual-MiniLM-L12-v2/
+//     可从 https://hf-mirror.com/Xenova/paraphrase-multilingual-MiniLM-L12-v2 手动下载
 const MODEL_NAME = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
 
-/** 统一知识条目格式 */
+// 统一知识条目格式
 export interface KnowledgeEntry {
   source: 'glossary' | 'dictionary' | 'learned'
   label: string
   text: string
 }
 
-/** 特征提取管线实例（单例） */
+// 特征提取管线实例（单例）
 let extractor: any = null
 
-/** 模型加载 Promise，防止并发重复加载 */
+// 模型加载 Promise，防止并发重复加载
 let extractorPromise: Promise<any> | null = null
 
 async function getExtractor(): Promise<any> {
@@ -63,14 +61,20 @@ async function getExtractor(): Promise<any> {
     return extractor
   })()
 
-  return extractorPromise
+  // 加载失败时重置 Promise，允许后续重试
+  try {
+    return await extractorPromise
+  } catch (err) {
+    const error = err as Error
+    console.error('[Embedding] 模型加载失败:', error.message)
+    extractorPromise = null
+    throw err
+  }
 }
 
-/**
- * 仅当用户显式配置了 HTTPS_PROXY 或 https_proxy 环境变量时，
- * 才设置 undici 全局代理。避免在无代理环境下默认设置不可用代理导致
- * 所有 fetch 请求失败。
- */
+// 仅当用户显式配置了 HTTPS_PROXY 或 https_proxy 环境变量时，
+// 才设置 undici 全局代理。避免在无代理环境下默认设置不可用代理导致
+// 所有 fetch 请求失败。
 async function setupFetchProxy(): Promise<void> {
   const proxyUrl = process.env['HTTPS_PROXY'] || process.env['https_proxy']
   if (!proxyUrl) {
@@ -103,15 +107,13 @@ async function computeEmbedding(text: string): Promise<number[]> {
   return Array.from(output.data) as number[]
 }
 
-/** 知识库 embedding 缓存 */
+// 知识库 embedding 缓存
 let knowledgeEmbeddings: Array<{
   entry: KnowledgeEntry
   embedding: number[]
 }> | null = null
 
-/**
- * 预热模型：启动时调用，提前下载并加载模型
- */
+// 预热模型：启动时调用，提前下载并加载模型
 export async function warmupEmbedding(): Promise<void> {
   try {
     await getExtractor()
@@ -122,10 +124,8 @@ export async function warmupEmbedding(): Promise<void> {
   }
 }
 
-/**
- * 构建知识库语义索引
- * 将所有知识条目编码为向量并缓存
- */
+// 构建知识库语义索引
+// 将所有知识条目编码为向量并缓存
 export async function buildKnowledgeIndex(entries: KnowledgeEntry[]): Promise<void> {
   const model = await getExtractor()
   const results: Array<{ entry: KnowledgeEntry; embedding: number[] }> = []
@@ -138,12 +138,10 @@ export async function buildKnowledgeIndex(entries: KnowledgeEntry[]): Promise<vo
   console.log(`[Embedding] 知识库索引完成: ${results.length} 条`)
 }
 
-/**
- * 语义搜索知识库
- * @param query  用户问题
- * @param topK  返回 topK 条
- * @returns  匹配的知识条目（含分数）
- */
+// 语义搜索知识库
+// @param query  用户问题
+// @param topK  返回 topK 条
+// @returns  匹配的知识条目（含分数）
 export async function searchKnowledge(
   query: string,
   topK: number = 5
@@ -161,9 +159,7 @@ export async function searchKnowledge(
   return scored.slice(0, topK).map((s) => ({ ...s.entry, score: s.score }))
 }
 
-/**
- * 清理缓存（用于热重载）
- */
+// 清理缓存（用于热重载）
 export function clearCache(): void {
   knowledgeEmbeddings = null
 }
