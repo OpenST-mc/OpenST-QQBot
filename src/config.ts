@@ -39,7 +39,11 @@ export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
 export const DEEPSEEK_MODEL = 'deepseek-v4-pro'
 
 // 上传服务配置
-export const UPLOAD_TOKEN_EXPIRY_MS = 30 * 60 * 1000 // 令牌有效期 30 分钟
+// 令牌有效期 5 分钟；缩短是为了压缩令牌泄露后可被重放使用的时间窗口
+// 必须与 upload-frontend/api/validate.js、upload-frontend/api/submit.js 中的
+// TOKEN_TTL_MS 保持一致——三处分属不同部署环境，无法共享同一份源码，
+// 修改其中一处时必须同步修改另外两处，否则会出现验证失败
+export const UPLOAD_TOKEN_EXPIRY_MS = 5 * 60 * 1000
 
 // 上传前端页面部署地址（Vercel）
 export const UPLOAD_FRONTEND_URL =
