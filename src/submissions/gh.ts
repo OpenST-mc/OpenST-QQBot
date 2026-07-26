@@ -10,6 +10,7 @@ import {
   WEBSITE_ARCHIVE_PATH,
   GH_API_BASE
 } from './config'
+import { assertSafeRelativePath } from './pathSafety'
 
 // 使用函数返回 headers 而非模块加载时冻结，确保 token 变更后可用
 function getHeaders(): Record<string, string> {
@@ -102,6 +103,9 @@ export async function uploadFileToWebsite(
   filePath: string,
   contentBase64: string
 ): Promise<void> {
+  // 纵深防御：即使上游调用方已校验，此处仍拒绝穿越出 WEBSITE_ARCHIVE_PATH 的路径
+  assertSafeRelativePath(filePath)
+
   const apiPath = `${WEBSITE_ARCHIVE_PATH}/${filePath}`
   const encodedPath = apiPath
     .split('/')

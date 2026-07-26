@@ -5,6 +5,7 @@ import JSZip from 'jszip'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { assertSafeRelativePath, safeJoin } from './pathSafety'
 
 // 最大下载大小 50MB
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
@@ -86,6 +87,9 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
       ? zipPath.slice(commonPrefix.length).replace(/^[\\/]/, '')
       : zipPath
 
+    // 拒绝含目录穿越或绝对路径的 entry，整包拒绝而非跳过单个文件
+    assertSafeRelativePath(relPath)
+
     const data = await entry.async('nodebuffer')
     result[relPath] = data
   }
@@ -118,7 +122,7 @@ export async function extractToTemp(zipUrl: string): Promise<string> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openst-submission-'))
 
   for (const [filePath, data] of Object.entries(files)) {
-    const fullPath = path.join(tmpDir, filePath)
+    const fullPath = safeJoin(tmpDir, filePath)
     const dir = path.dirname(fullPath)
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
