@@ -11,6 +11,8 @@ export interface IssueState {
   body: string
   notifyMessageId: string
   claimedBy: string
+  // 是否正在处理通过/拒稿流程，防止按钮/文本回退重复触发并发操作
+  processing?: boolean
 }
 
 // 持久化数据结构
