@@ -44,7 +44,7 @@ function parseCsvSet(envKey: string): Set<string> {
 /** DeepSeek API 配置 */
 export const DEEPSEEK_API_KEY = process.env['DEEPSEEK_API_KEY'] || ''
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
-export const DEEPSEEK_MODEL = 'deepseek-chat'
+export const DEEPSEEK_MODEL = 'deepseek-v4-pro'
 
 /** 上传服务配置 */
 export const UPLOAD_TOKEN_EXPIRY_MS = 30 * 60 * 1000 // 令牌有效期 30 分钟
@@ -62,7 +62,38 @@ export const SHARE_BASE_URL = 'https://openstmc.com/api/share?'
 
 /** 文件路径 */
 export const GLOSSARY_CSV_PATH = 'public/database/TechMC Glossary.csv'
+export const SOURCE_DATABASE_PATH = 'public/database/source'
 export const AI_AGENT_PROMPT_PATH = 'agent/AGENTS.md'
+
+/** 联网搜索配置 */
+// 最大返回结果数
+export const SEARCH_MAX_RESULTS =
+  parseInt(process.env['SEARCH_MAX_RESULTS'] || '5', 10)
+// 自定义搜索后端 URL（SearXNG JSON API 格式，如 https://searx.example.com）
+// 为空则使用 DuckDuckGo HTML Lite（免费，无需 API key）
+export const SEARCH_CUSTOM_URL = process.env['SEARCH_CUSTOM_URL'] || ''
+// 是否启用 AI 结果摘要，默认开启
+export const SEARCH_AI_SUMMARIZE =
+  process.env['SEARCH_AI_SUMMARIZE'] !== 'false'
+// /ask 命令是否默认注入联网搜索结果，SEARCH_IN_ASK=false 关闭
+export const SEARCH_IN_ASK = process.env['SEARCH_IN_ASK'] !== 'false'
+// 联网搜索总开关，默认关闭
+export const SEARCH_ENABLED = process.env['SEARCH_ENABLED'] === 'true'
+
+/** 投稿审核系统配置 */
+// 接收新稿件通知的群组 openid
+export const SUBMISSIONS_AC = process.env['SUBMISSIONS_AC'] || ''
+// 审核人员名单（逗号分隔的用户 openid）
+export const SUBMISSIONS_REVIEWERS = parseCsvSet('SUBMISSIONS_REVIEWERS')
+// GitHub Token（需有 Submissions repo + website repo 权限）
+export const SUBMISSIONS_GH_TOKEN =
+  process.env['SUBMISSIONS_GH_TOKEN'] || process.env['GITHUB_TOKEN'] || ''
+// 轮询间隔秒数，默认 60
+export const SUBMISSIONS_POLL_INTERVAL_S =
+  parseInt(process.env['SUBMISSIONS_POLL_INTERVAL_S'] || '60', 10)
+// 新稿件通知时 @ 提示最闲审核人数，默认 2
+export const SUBMISSIONS_AT_COUNT =
+  parseInt(process.env['SUBMISSIONS_AT_COUNT'] || '2', 10)
 
 /** QQ API 端点 */
 export const QQ_API_BASE = 'https://api.sgroup.qq.com'

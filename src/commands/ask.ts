@@ -8,12 +8,12 @@
  * 5. 从本地 public/database/database.json 读取机器数据，按查询匹配候选机器
  * 6. 调用 DeepSeek AI 生成回答（带该用户的历史上下文）
  * 7. 如有机器推荐，拼接待推荐链接返回用户
- * 8. 检测回答质量：若无匹配数据则标记待学习，下次用户补充知识时自动录入
+ * 8. 检测回答质量：若无匹配数据则标记待学习，并触发联网搜索补充
  * 9. 保存本轮对话到用户上下文
  */
 import fs from 'fs'
 import { QqMessageEvent, sendMessage, sendMarkdown } from '../bot/adapter'
-import { askAiWithRecommendations } from '../services/ai'
+import { askAiWithRecommendations, askAi } from '../services/ai'
 import {
   loadGlossary,
   loadMachineDatabase,
@@ -34,8 +34,11 @@ import {
   learnFromMessage,
   isLearnableMessage
 } from '../services/learn'
-import { AI_AGENT_PROMPT_PATH, SHARE_BASE_URL } from '../config'
+import { AI_AGENT_PROMPT_PATH, SHARE_BASE_URL, SEARCH_IN_ASK, SEARCH_ENABLED } from '../config'
 import { parseAttachments } from '../services/attachment'
+import { searchSourceFiles } from '../services/source'
+import { analyzeSource } from '../services/agent'
+import { webSearch } from '../services/search'
 
 /** 不确定性关键词（AI 表示无法回答时的常用措辞） */
 const UNCERTAINTY_PATTERNS = [
@@ -55,16 +58,24 @@ export async function handleAsk(
   event: QqMessageEvent,
   args: string
 ): Promise<void> {
+  // 无文本参数时，尝试使用引用消息内容
+  let argsFromRef = false
   if (!args) {
-    await sendMessage({
-      content: '请在 /ask 后输入你的问题。\n例: /ask 推荐一台生电机器\n也支持先发 /ask 再发文本文件。',
-      sourceType: event.sourceType,
-      groupOpenid: event.groupOpenid,
-      userOpenid: event.author.id,
-      channelId: event.channelId,
-      messageId: event.id
-    })
-    return
+    if (event.referencedContent) {
+      args = event.referencedContent
+      argsFromRef = true
+      console.log(`[Ask] 使用引用消息内容作为问题，长度: ${args.length}`)
+    } else {
+      await sendMessage({
+        content: '请在 /ask 后输入你的问题。\n例: /ask 推荐一台生电机器\n也支持先发 /ask 再发文本文件。',
+        sourceType: event.sourceType,
+        groupOpenid: event.groupOpenid,
+        userOpenid: event.author.id,
+        channelId: event.channelId,
+        messageId: event.id
+      })
+      return
+    }
   }
 
   // 获取该用户的对话上下文
@@ -110,6 +121,14 @@ export async function handleAsk(
     console.warn('[Ask] 未找到 agent/AGENTS.md，使用默认提示词')
   }
 
+  // 附加文件搜索工具指令（主模型自行决定是否使用）
+  systemPrompt +=
+    '\n\n## 文件搜索\n' +
+    '如果你需要查阅 public/database/source/ 目录下的文件来获取更准确的信息，\n' +
+    '请在回复开头写 [SEARCH_SOURCE: 你的查询关键词]。\n' +
+    '系统会搜索该目录下的文件并将内容返回给你，请你基于结果给出最终回答。\n' +
+    '如果你不需要文件搜索结果，直接正常回答。'
+
   // 构建知识库索引并语义匹配
   let enrichedPrompt = args
   let matchedKnowledge: Array<KnowledgeEntry & { score: number }> = []
@@ -154,6 +173,15 @@ export async function handleAsk(
     console.log(`[Ask] 语义知识匹配: ${matchedKnowledge.length} 条, top1=${matchedKnowledge[0].label} (score=${matchedKnowledge[0].score.toFixed(4)})`)
   }
 
+  // 引用消息文本内容作为额外上下文（仅当 args 非引用自身时注入）
+  if (event.referencedContent && !argsFromRef) {
+    const refContext = `[引用消息内容]\n${event.referencedContent}`
+    enrichedPrompt = enrichedPrompt
+      ? `${refContext}\n\n---\n${enrichedPrompt}`
+      : `${refContext}\n\n---\n${args}`
+    console.log(`[Ask] 引用消息已注入 prompt，长度: ${event.referencedContent.length}`)
+  }
+
   // 附件内容直接追加到用户问题末尾
   if (attachmentText) {
     enrichedPrompt = enrichedPrompt
@@ -173,14 +201,67 @@ export async function handleAsk(
     console.warn('[Ask] 机器数据库匹配失败:', error.message)
   }
 
-  // 调用 AI（传入该用户的历史上下文）
-  const aiResult = await askAiWithRecommendations(
+  // 联网搜索注入（需 SEARCH_ENABLED=true 且 SEARCH_IN_ASK 未关闭）
+  if (SEARCH_ENABLED && SEARCH_IN_ASK) {
+    try {
+      const searchResults = await webSearch(args)
+      if (searchResults.length > 0) {
+        const searchContext = searchResults
+          .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}`)
+          .join('\n')
+        enrichedPrompt = enrichedPrompt
+          ? `[联网搜索结果]\n${searchContext}\n\n---\n${enrichedPrompt}`
+          : `${args}\n\n[联网搜索结果]\n${searchContext}`
+        console.log(
+          `[Ask] 联网搜索结果已注入: ${searchResults.length} 条`
+        )
+      }
+    } catch (err) {
+      console.warn('[Ask] 联网搜索注入失败:', (err as Error).message)
+    }
+  }
+
+  // 第一轮 AI 调用：主模型可能请求文件搜索
+  let aiResult = await askAiWithRecommendations(
     systemPrompt,
     enrichedPrompt,
     machines,
     matchedMachines,
     history
   )
+
+  // 检查主模型是否请求了文件搜索
+  const searchTag = aiResult.answer.match(/\[SEARCH_SOURCE:\s*(.+?)\]/)
+  if (searchTag) {
+    const searchQuery = searchTag[1].trim()
+    console.log(`[Ask] 主模型请求文件搜索: "${searchQuery}"`)
+
+    try {
+      const matchedFiles = searchSourceFiles(searchQuery)
+      if (matchedFiles.length > 0) {
+        console.log(`[Ask] 命中 ${matchedFiles.length} 个文件`)
+        const analysis = await analyzeSource(searchQuery, matchedFiles)
+        if (analysis) {
+          // 将分析结果注入 prompt，第二次调用主模型
+          const secondPrompt =
+            `[文件分析结果]\n${analysis}\n\n---\n` +
+            `用户原始问题: ${enrichedPrompt}`
+          aiResult = await askAiWithRecommendations(
+            systemPrompt,
+            secondPrompt,
+            machines,
+            matchedMachines,
+            history
+          )
+        }
+      } else {
+        console.log('[Ask] 未找到匹配的文件')
+      }
+    } catch (err) {
+      const error = err as Error
+      console.warn('[Ask] 文件搜索失败:', error.message)
+    }
+  }
 
   // 构建回复：AI 回答 + 推荐链接（完整 Markdown，QQ 原生支持）
   let reply = aiResult.answer
@@ -198,10 +279,42 @@ export async function handleAsk(
     UNCERTAINTY_PATTERNS.some((p) => reply.includes(p))
 
   if (isUncertain) {
-    setPendingLearn(event, args)
+    // 默认联网搜索已注入 prompt，此处仅作为关闭搜索时的回退
+    let searched = false
+    if (!SEARCH_IN_ASK && SEARCH_ENABLED) {
+      try {
+        const searchResults = await webSearch(args)
+        if (searchResults.length > 0) {
+          const searchContext = searchResults
+            .map((r, i) => `${i + 1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`)
+            .join('\n\n')
+          const retryPrompt =
+            `用户问题: ${args}\n\n` +
+            `以下是联网搜索结果，请基于这些信息重新回答用户问题:\n\n${searchContext}`
+          const improvedAnswer = await askAi(systemPrompt, retryPrompt, history)
+          if (improvedAnswer) {
+            reply = improvedAnswer
+            reply += '\n\n---\n## 搜索来源'
+            for (let i = 0; i < searchResults.length; i++) {
+              reply += `\n${i + 1}. [${searchResults[i].title}](${searchResults[i].url})`
+            }
+            searched = true
+            console.log(
+              `[Ask] 联网搜索补充完成: ${searchResults.length} 条结果`
+            )
+          }
+        }
+      } catch (err) {
+        console.warn('[Ask] 联网搜索失败:', (err as Error).message)
+      }
+    }
+
+    if (!searched) {
+      setPendingLearn(event, args)
+      reply +=
+        '\n\n---\n如果你了解相关信息，欢迎补充！我会自动记录到知识库中。'
+    }
     console.log(`[Ask] ${getContextSummary(event)}`)
-    reply +=
-      '\n\n---\n如果你了解相关信息，欢迎补充！我会自动记录到知识库中。'
   }
 
   // 主动学习检测

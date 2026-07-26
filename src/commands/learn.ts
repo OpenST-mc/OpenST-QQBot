@@ -40,6 +40,12 @@ export async function handleLearn(
 
   // 合并文本和附件内容
   let fullText = args || ''
+  if (event.referencedContent) {
+    fullText = fullText
+      ? `${fullText}\n\n[引用内容] ${event.referencedContent}`
+      : event.referencedContent
+    console.log(`[Learn] 引用消息已注入，长度: ${event.referencedContent.length}`)
+  }
   if (attachmentText) {
     fullText = fullText
       ? `${fullText}\n\n${attachmentText}`

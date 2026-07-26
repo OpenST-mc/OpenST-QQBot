@@ -27,8 +27,12 @@ export interface QqMessageEvent {
   sourceType: 'c2c' | 'group' | 'channel'
   /** 本消息的附件列表 */
   attachments: QqAttachment[]
+  /** 被引用消息的文本内容（回复/引用消息时） */
+  referencedContent: string
   /** 被引用消息的附件列表（回复/引用消息时） */
   referencedAttachments: QqAttachment[]
+  /** 原始事件类型，用于区分 @消息 和普通消息 */
+  eventType: string
 }
 
 /** 附件信息 */
@@ -56,6 +60,22 @@ export interface SendMessageParams {
   groupOpenid?: string
   /** 消息来源类型 */
   sourceType: 'c2c' | 'group' | 'channel'
+}
+
+/** QQ 按钮交互事件 */
+export interface QqInteractionEvent {
+  /** 交互 ID */
+  id: string
+  /** 交互类型，11 = 消息按钮回调 */
+  type: number
+  /** 按钮回调数据 */
+  data: string
+  /** 触发用户 openid */
+  userId: string
+  /** 群 openid（群聊按钮） */
+  groupOpenid?: string
+  /** 原始消息 ID */
+  messageId: string
 }
 
 /** WebSocket 操作码 */
@@ -295,6 +315,103 @@ export async function sendImage(params: SendImageParams): Promise<void> {
   }
 }
 
+/** 键盘按钮定义 */
+export interface KeyboardButton {
+  /** 按钮唯一 ID */
+  id: string
+  /** 按钮显示文本 */
+  label: string
+  /** 按钮点击后显示文本 */
+  visitedLabel: string
+  /** 回调数据 */
+  data: string
+}
+
+/** 键盘行定义 */
+export interface KeyboardRow {
+  buttons: KeyboardButton[]
+}
+
+/** 键盘 Markdown 消息参数 */
+export interface SendMarkdownWithKeyboardParams {
+  markdownContent: string
+  keyboard: KeyboardRow[]
+  messageId?: string
+  userOpenid?: string
+  groupOpenid?: string
+  sourceType: 'c2c' | 'group'
+  /** 是否允许所有人点击按钮（默认仅审核人员） */
+  allowAllClick?: boolean
+}
+
+/**
+ * 发送带键盘按钮的 Markdown 消息
+ * 返回消息 ID 用于后续追踪
+ */
+export async function sendMarkdownWithKeyboard(
+  params: SendMarkdownWithKeyboardParams
+): Promise<string> {
+  const token = await getAccessToken()
+  const headers = {
+    'Authorization': `QQBot ${token}`,
+    'Content-Type': 'application/json'
+  }
+
+  let url = ''
+  const body: Record<string, unknown> = {
+    msg_type: 2,
+    markdown: { content: params.markdownContent },
+    keyboard: {
+      content: {
+        rows: params.keyboard.map((row) => ({
+          buttons: row.buttons.map((btn) => ({
+            id: btn.id,
+            render_data: {
+              label: btn.label,
+              visited_label: btn.visitedLabel
+            },
+            action: {
+              type: 2,
+              data: btn.data,
+              permission: {
+                // type 2 = 所有人可点击，权限校验由 bot 服务端代码负责
+                type: 2
+              }
+            }
+          }))
+        }))
+      }
+    }
+  }
+
+  if (params.sourceType === 'group' && params.groupOpenid) {
+    url = `${QQ_API_BASE}/v2/groups/${params.groupOpenid}/messages`
+    if (params.messageId) body['msg_id'] = params.messageId
+    body['msg_seq'] = nextMsgSeq(params.groupOpenid)
+  } else if (params.sourceType === 'c2c' && params.userOpenid) {
+    url = `${QQ_API_BASE}/v2/users/${params.userOpenid}/messages`
+    if (params.messageId) body['msg_id'] = params.messageId
+    body['msg_seq'] = nextMsgSeq(params.userOpenid)
+  }
+
+  try {
+    const resp = await axios.post(url, body, { headers })
+    const data = resp.data as { id?: string }
+    const msgId = String(data.id || '')
+    if (msgId) {
+      console.log(`[Adapter] 键盘消息发送成功, msgId=${msgId}`)
+    }
+    return msgId
+  } catch (err) {
+    const error = err as Error & { response?: { data: unknown } }
+    console.error('[Adapter] 键盘消息发送失败:', error.message)
+    if (error.response) {
+      console.error('[Adapter] 响应详情:', JSON.stringify(error.response.data))
+    }
+    return ''
+  }
+}
+
 /**
  * 获取 WebSocket 网关地址
  * 使用 bot 专用端点 /gateway/bot
@@ -310,8 +427,19 @@ async function getGatewayUrl(): Promise<string> {
   return data.url
 }
 
-/** 事件处理回调类型 */
+/** 消息事件处理回调类型 */
 export type EventHandler = (event: QqMessageEvent) => Promise<void>
+
+/** 交互事件处理回调类型 */
+export type InteractionHandler = (event: QqInteractionEvent) => void
+
+/** 交互事件处理器，由 event.ts 注册 */
+let onInteraction: InteractionHandler = () => {}
+
+/** 注册交互事件处理器 */
+export function setInteractionHandler(h: InteractionHandler): void {
+  onInteraction = h
+}
 
 /**
  * 启动 WebSocket 长连接
@@ -360,6 +488,7 @@ export function startWebSocket(onEvent: EventHandler): void {
 
     // 消息事件
     if (
+      eventType === 'GROUP_MESSAGE_CREATE' ||
       eventType === 'GROUP_AT_MESSAGE_CREATE' ||
       eventType === 'C2C_MESSAGE_CREATE' ||
       eventType === 'AT_MESSAGE_CREATE' ||
@@ -379,12 +508,28 @@ export function startWebSocket(onEvent: EventHandler): void {
         sourceType = 'channel'
       }
 
-      // 解析 msg_elements：提取附件和引用消息的附件
+      // 解析 msg_elements：提取附件和引用消息的文本+附件
       const msgElems = (data['msg_elements'] || []) as Array<Record<string, unknown>>
       let attachments: QqAttachment[] = []
+      let referencedContent = ''
       let referencedAttachments: QqAttachment[] = []
 
       for (const elem of msgElems) {
+        const isReferenced = elem['msg_idx'] !== undefined
+
+        // 提取引用消息的文本内容
+        // QQ 引用 msg_elements 的文本在 elem.content 或其 text_element.content 中
+        const textContent = String(
+          elem['content'] ||
+          (elem['text_element'] as Record<string, unknown>)?.['content'] ||
+          (elem['text_element'] as Record<string, unknown>)?.['text'] ||
+          ''
+        )
+        if (textContent && isReferenced) {
+          referencedContent += (referencedContent ? ' ' : '') + textContent
+        }
+
+        // 提取附件
         const elemAtt = (
           elem['attachments'] || elem['attachment'] || []
         ) as Array<Record<string, unknown>>
@@ -397,8 +542,7 @@ export function startWebSocket(onEvent: EventHandler): void {
           filename: String(att['filename'] || ''),
           size: Number(att['size'] || 0)
         }))
-        // 带 msg_idx 的元素是被引用的消息，其余的是本消息附件
-        if (elem['msg_idx'] !== undefined) {
+        if (isReferenced) {
           referencedAttachments = [...referencedAttachments, ...parsed]
           console.log(`[Adapter] 引用消息附件: ${parsed.length} 个`)
         } else {
@@ -420,7 +564,9 @@ export function startWebSocket(onEvent: EventHandler): void {
         timestamp: String(data['timestamp'] || ''),
         sourceType: sourceType,
         attachments: attachments,
-        referencedAttachments: referencedAttachments
+        referencedContent: referencedContent,
+        referencedAttachments: referencedAttachments,
+        eventType: eventType
       }
     }
 
@@ -488,12 +634,42 @@ export function startWebSocket(onEvent: EventHandler): void {
             console.log(`[Adapter] 收到事件: ${t}`)
           }
 
-          const event = parseEvent(payload)
-          if (event) {
-            // 异步处理事件，不阻塞消息接收
-            onEvent(event).catch((err: Error) => {
-              console.error('[Adapter] 事件处理错误:', err.message)
-            })
+          // 交互事件独立处理，不进入消息事件管线
+          if (t === 'INTERACTION_CREATE' && d) {
+            const interactionType = Number(d['type'] || 0)
+            if (interactionType === 11) {
+              const interactionData = (
+                d['data'] as Record<string, unknown> | undefined
+              ) || {}
+              const memberUser = (
+                (d['member'] as Record<string, unknown> | undefined)?.['user']
+              ) as Record<string, unknown> | undefined
+              const ie: QqInteractionEvent = {
+                id: String(d['id'] || ''),
+                type: interactionType,
+                data: String(interactionData['data'] || ''),
+                userId: String(
+                  memberUser?.['id'] ||
+                  (d['user'] as Record<string, unknown>)?.['id'] ||
+                  ''
+                ),
+                groupOpenid: String(d['group_openid'] || '') || undefined,
+                messageId: String(d['message_id'] || '')
+              }
+              console.log(
+                `[Adapter] 收到按钮交互 | user=${ie.userId}` +
+                ` | data="${ie.data}"`
+              )
+              onInteraction(ie)
+            }
+          } else {
+            const event = parseEvent(payload)
+            if (event) {
+              // 异步处理事件，不阻塞消息接收
+              onEvent(event).catch((err: Error) => {
+                console.error('[Adapter] 事件处理错误:', err.message)
+              })
+            }
           }
         } else if (op === OpCode.HEARTBEAT_ACK) {
           // 心跳确认，静默

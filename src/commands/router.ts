@@ -5,11 +5,14 @@
  * 群组消息受 QQ_GROUP_WHITELIST 限制，私聊受 QQ_USER_WHITELIST 限制
  * /ping 始终放行，用于诊断
  */
-import { QqMessageEvent, sendMessage } from '../bot/adapter'
+import { QqMessageEvent, QqInteractionEvent, sendMessage } from '../bot/adapter'
 import { QQ_GROUP_WHITELIST, QQ_USER_WHITELIST, QQ_LEARN_WHITELIST } from '../config'
 import { handleAsk } from './ask'
 import { handleUpload } from './upload'
 import { handleLearn } from './learn'
+import { handleSearch } from './search'
+import { handleList } from '../submissions/commands'
+import { handleInteraction } from '../submissions/interact'
 
 /** 命令处理器：接收事件 + 命令参数，自行回复消息 */
 type CommandHandler = (
@@ -22,7 +25,9 @@ const commandMap: Record<string, CommandHandler> = {
   '/ask': handleAsk,
   '/upload': handleUpload,
   '/learn': handleLearn,
-  '/ping': pingHandler
+  '/search': handleSearch,
+  '/ping': pingHandler,
+  '/list': handleList
 }
 
 /** /ping 连通测试 + 标识信息诊断 */
@@ -56,8 +61,8 @@ async function pingHandler(
   })
 }
 
-/** 命令前缀识别正则 */
-const COMMAND_REGEX = /^\/(ask|upload|learn|ping)\b/
+/** 命令前缀识别正则：匹配任意 /xxx 命令 */
+const COMMAND_REGEX = /^\/(\S+)\b/
 
 /**
  * 首次收到私聊消息时，打印用户 openid 以方便配置白名单
@@ -147,21 +152,102 @@ function isLearnAllowed(event: QqMessageEvent): boolean {
  */
 export async function routeMessage(event: QqMessageEvent): Promise<void> {
   const content = event.content.trim()
-  const match = content.match(COMMAND_REGEX)
+  const refContent = event.referencedContent || ''
 
   // 记录标识信息，方便配置白名单
   logGroupInfo(event)
   logUserInfo(event)
 
-  // 非命令消息，静默忽略
+  // 群聊：仅 @bot 消息才响应（事件类型或 content 中携带 @ 标记）
+  if (event.sourceType === 'group') {
+    const isAtEvent = (
+      event.eventType === 'GROUP_AT_MESSAGE_CREATE' ||
+      event.eventType === 'AT_MESSAGE_CREATE'
+    )
+    const hasMention = /<@!?[^>]+>/.test(content)
+    if (!isAtEvent && !hasMention) {
+      console.log(
+        `[Router] 群普通消息忽略 | content="${content.slice(0, 80)}"`
+      )
+      return
+    }
+  }
+
+  // 去除 @机器人 前缀后再匹配命令
+  const cleaned = content
+    .replace(/<@!?[^>]+>\s*/g, '')
+    .trim()
+  const effective = cleaned || refContent
+
+  // 移动端按钮兼容：QQ 移动端不支持键盘交互，会将回调数据作为文本发送
+  // 在此拦截 claim:N / approve:N / reject:N 格式的消息并转发给交互处理器
+  const callbackMatch = cleaned.match(/^(claim|approve|reject):(\d+)$/)
+  if (callbackMatch) {
+    const interaction: QqInteractionEvent = {
+      id: event.id,
+      type: 11,
+      data: cleaned,
+      userId: event.author.id,
+      groupOpenid: event.groupOpenid,
+      messageId: ''
+    }
+    handleInteraction(interaction)
+    return
+  }
+  console.log(
+    `[Router] content="${content.slice(0, 60)}" ` +
+    `cleaned="${cleaned.slice(0, 60)}" ` +
+    `ref="${refContent.slice(0, 30)}"`
+  )
+  if (!effective) return
+
+  const match = cleaned.match(COMMAND_REGEX)
+  if (match) {
+    console.log(`[Router] 命令匹配: ${match[0]} -> ${'/' + match[1].toLowerCase()}`)
+  }
+
+  // 非命令消息
   if (!match) {
+    // 群聊：仅 @bot /command 生效，纯文本不自动转 /ask
+    if (event.sourceType === 'group') return
+
+    // 私聊非白名单用户只允许 /ping 和 /upload 命令，纯文本不响应
+    if (!isAllowed(event)) {
+      console.log(
+        `[Router] 拦截非白名单用户私聊: user_openid=${event.author.id}`
+      )
+      return
+    }
+
+    // 私聊：自动走 /ask
+    console.log(`[Router] Chat: "${effective.slice(0, 50)}"`)
+    try {
+      await handleAsk(event, effective)
+    } catch (err) {
+      const error = err as Error & { response?: { status: number; data: unknown } }
+      console.error('[Router] 对话执行失败:', error.message)
+      if (error.response) {
+        console.error(
+          `[Router] 上游返回 ${error.response.status}:`,
+          JSON.stringify(error.response.data)
+        )
+      }
+      await sendMessage({
+        content: '命令执行失败，请稍后重试。',
+        sourceType: event.sourceType,
+        groupOpenid: event.groupOpenid,
+        userOpenid: event.author.id,
+        channelId: event.channelId,
+        messageId: event.id
+      })
+    }
     return
   }
 
-  const commandName = match[0].trim()
+  const commandName = '/' + match[1].toLowerCase()
 
-  // 白名单检查（/ping 始终放行）
-  if (commandName !== '/ping' && !isAllowed(event)) {
+  // 白名单检查（/ping 和 /upload 始终放行）
+  if (commandName !== '/ping' && commandName !== '/upload' && !isAllowed(event)) {
     if (event.sourceType === 'group') {
       console.log(
         `[Router] 拦截非白名单群组消息: group_openid=${event.groupOpenid}`
@@ -182,12 +268,11 @@ export async function routeMessage(event: QqMessageEvent): Promise<void> {
     )
     return
   }
-  // 提取命令后面的参数（去掉命令本身）
-  const args = content.slice(match[0].length).trim()
+  // 提取命令后面的参数（命令匹配基于 cleaned，去掉了 @bot 前缀）
+  const args = cleaned.slice(match[0].length).trim()
   const handler = commandMap[commandName]
 
   if (!handler) {
-    // 理论上不会到这里，因为正则已限制命令范围
     await sendMessage({
       content: `未知命令: ${commandName}`,
       sourceType: event.sourceType,
@@ -202,8 +287,14 @@ export async function routeMessage(event: QqMessageEvent): Promise<void> {
   try {
     await handler(event, args)
   } catch (err) {
-    const error = err as Error
+    const error = err as Error & { response?: { status: number; data: unknown } }
     console.error(`[Router] 命令 ${commandName} 执行失败:`, error.message)
+    if (error.response) {
+      console.error(
+        `[Router] 上游返回 ${error.response.status}:`,
+        JSON.stringify(error.response.data)
+      )
+    }
     // 向用户返回错误提示，但不暴露内部细节
     await sendMessage({
       content: '命令执行失败，请稍后重试。',
