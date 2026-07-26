@@ -1,7 +1,7 @@
 // 投稿压缩包下载与解压
 // 下载 issue 中附带的投稿全量包，解压后返回内部文件列表
 import axios from 'axios'
-import JSZip from 'jszip'
+import yauzl, { Entry, ZipFile } from 'yauzl'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -9,8 +9,11 @@ import * as os from 'os'
 // 最大下载大小 50MB
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 
-// 最大解压后总大小 50MB，防止高压缩比 zip（zip bomb）耗尽内存
+// 单个文件与解压后总大小均限制为 50MB，防止 zip bomb 耗尽内存
 const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+
+// 最多解压 1000 个非目录文件，限制大量小文件消耗资源
+const MAX_FILE_COUNT = 1000
 
 // 解压结果：文件路径 -> Buffer 的映射
 export interface ExtractedFiles {
@@ -71,39 +74,122 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
 
   const buffer = Buffer.from(resp.data as ArrayBuffer)
 
-  const zip = await JSZip.loadAsync(buffer)
-  const result: ExtractedFiles = {}
-
-  // 收集所有文件路径
-  const fileEntries: Array<{ zipPath: string; entry: JSZip.JSZipObject }> = []
-  zip.forEach((relativePath, entry) => {
-    if (entry.dir) return
-    fileEntries.push({ zipPath: relativePath, entry })
+  const zip = await yauzl.fromBufferPromise(buffer, {
+    autoClose: false,
+    lazyEntries: true
   })
 
-  // 找到所有文件的公共前缀（顶层文件夹名）
-  const commonPrefix = findCommonPrefix(fileEntries.map((f) => f.zipPath))
+  try {
+    const entries = await readFileEntries(zip)
+    const commonPrefix = findCommonPrefix(entries.map((entry) => entry.fileName))
+    const result: ExtractedFiles = {}
+    let uncompressedBytes = 0
 
-  // 逐个解压 entry 并累加已解压字节数，一旦超过上限立即中止，
-  // 防止高压缩比 zip 在解压阶段把内存撑爆（zip bomb）
-  let uncompressedBytes = 0
-  for (const { zipPath, entry } of fileEntries) {
-    const relPath = commonPrefix
-      ? zipPath.slice(commonPrefix.length).replace(/^[\\/]/, '')
-      : zipPath
-
-    const data = await entry.async('nodebuffer')
-    uncompressedBytes += data.length
-    if (uncompressedBytes > MAX_UNCOMPRESSED_BYTES) {
-      const sizeMB = (uncompressedBytes / (1024 * 1024)).toFixed(1)
-      throw new Error(
-        `投稿包解压后大小超过限制 (已超过 ${sizeMB}MB)，超过限制 ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)}MB`
-      )
+    for (const entry of entries) {
+      const relPath = commonPrefix
+        ? entry.fileName.slice(commonPrefix.length).replace(/^[\\/]/, '')
+        : entry.fileName
+      const data = await readEntry(zip, entry, (chunkLength) => {
+        uncompressedBytes += chunkLength
+        return uncompressedBytes <= MAX_UNCOMPRESSED_BYTES
+      })
+      result[relPath] = data
     }
-    result[relPath] = data
-  }
 
-  return result
+    return result
+  } finally {
+    closeZip(zip)
+  }
+}
+
+// 使用 lazy entries 先收集路径，以保留去掉公共顶层目录的行为
+function readFileEntries(zip: ZipFile): Promise<Entry[]> {
+  return new Promise((resolve, reject) => {
+    const entries: Entry[] = []
+    let settled = false
+
+    const fail = (error: Error): void => {
+      if (settled) return
+      settled = true
+      closeZip(zip)
+      reject(error)
+    }
+
+    zip.once('error', fail)
+    zip.on('entry', (entry: Entry) => {
+      if (!entry.fileName.endsWith('/')) {
+        entries.push(entry)
+        if (entries.length > MAX_FILE_COUNT) {
+          fail(new Error(`投稿包文件数量超过限制 ${MAX_FILE_COUNT}`))
+          return
+        }
+      }
+      zip.readEntry()
+    })
+    zip.once('end', () => {
+      if (settled) return
+      settled = true
+      resolve(entries)
+    })
+    zip.readEntry()
+  })
+}
+
+// 逐块读取条目，在追加到结果前检查单文件及全部文件的解压大小
+function readEntry(
+  zip: ZipFile,
+  entry: Entry,
+  addToTotal: (chunkLength: number) => boolean
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zip.openReadStream(entry, (openError, stream) => {
+      if (openError) {
+        closeZip(zip)
+        reject(openError)
+        return
+      }
+
+      const chunks: Buffer[] = []
+      let fileBytes = 0
+      let settled = false
+
+      const fail = (error: Error): void => {
+        if (settled) return
+        settled = true
+        stream.destroy()
+        closeZip(zip)
+        reject(error)
+      }
+
+      stream.on('data', (chunk: Buffer) => {
+        const nextFileBytes = fileBytes + chunk.length
+        if (nextFileBytes > MAX_UNCOMPRESSED_BYTES) {
+          fail(new Error(
+            `投稿包单个文件解压后大小超过限制 ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)}MB`
+          ))
+          return
+        }
+        if (!addToTotal(chunk.length)) {
+          fail(new Error(
+            `投稿包解压后总大小超过限制 ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)}MB`
+          ))
+          return
+        }
+        fileBytes = nextFileBytes
+        chunks.push(chunk)
+      })
+      stream.once('error', fail)
+      stream.once('end', () => {
+        if (settled) return
+        settled = true
+        resolve(Buffer.concat(chunks, fileBytes))
+      })
+    })
+  })
+}
+
+function closeZip(zip: ZipFile): void {
+  if (zip.isOpen) zip.close()
 }
 
 // 找出路径列表的公共前缀目录
