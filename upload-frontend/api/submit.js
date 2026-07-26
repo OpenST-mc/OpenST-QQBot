@@ -25,6 +25,7 @@ function deriveKey(secret) {
 }
 
 function verifyToken(token, secret) {
+  if (!secret) return false;
   if (!token || token.length !== TOKEN_TOTAL_LEN) return false;
   var payload = token.slice(0, TOKEN_PAYLOAD_LEN);
   var providedHmac = token.slice(TOKEN_PAYLOAD_LEN, TOKEN_TOTAL_LEN);
