@@ -7,24 +7,11 @@
  */
 const crypto = require('crypto');
 const axios = require('axios');
+const { TRUSTED_DOWNLOAD_HOST } = require('./config');
 
 const TOKEN_TTL_MS = 30 * 60 * 1000;
-// 可信下载域名：优先读取 WORKER_URL 环境变量的域名，未设置时退回默认域名
-// （与 src/config.ts 的 WORKER_URL 默认值保持一致）。
 // downloadUrl 完全由前端提交、未经验证，写入 issue 前需校验来源域名，
 // 否则可被伪造成任意地址（含内网地址），造成审核端下载时的 SSRF 风险
-const DEFAULT_TRUSTED_DOWNLOAD_HOST = 'api.openstmc.com';
-const TRUSTED_DOWNLOAD_HOST = (function () {
-  var workerUrl = process.env.WORKER_URL || '';
-  if (workerUrl) {
-    try {
-      return new URL(workerUrl).hostname.toLowerCase();
-    } catch (e) {
-      // WORKER_URL 配置无效时忽略，退回默认域名
-    }
-  }
-  return DEFAULT_TRUSTED_DOWNLOAD_HOST;
-})();
 
 function isTrustedDownloadUrl(urlStr) {
   if (!urlStr) return true;
