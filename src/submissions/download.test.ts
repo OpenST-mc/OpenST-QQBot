@@ -33,7 +33,10 @@ async function withMockedDownload(buffer: Buffer, run: () => Promise<void>): Pro
   }
 }
 
-const FAKE_URL = 'http://example.invalid/submission.zip'
+// 使用默认可信中继域名（与 WORKER_URL 默认值一致），避免与另一分支
+// （fix/submission-download-ssrf）新增的下载域名白名单检查冲突——
+// 该分支合并后 downloadAndExtract 会先校验 host，example.invalid 会被拒绝
+const FAKE_URL = 'http://api.openstmc.com/submission.zip'
 
 test('downloadAndExtract 正常大小投稿包不受影响', async () => {
   const buffer = await buildZipBuffer({
