@@ -36,7 +36,7 @@ export function generateToken(): string {
   const payload = timestamp + nonce
 
   if (!UPLOAD_SECRET) {
-    return payload + '0'.repeat(TOKEN_HMAC_HEX_LEN)
+    throw new Error('UPLOAD_SECRET 未設定，無法生成安全的上傳令牌')
   }
 
   const hmac = crypto

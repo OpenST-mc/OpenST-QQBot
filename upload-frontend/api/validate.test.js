@@ -1,13 +1,26 @@
-// validate.js / submit.js 令牌格式测试（HMAC 长度加长、有效期缩短）
+// bot 与 Vercel API 的令牌格式测试（HMAC 长度加长、有效期缩短）
 // 使用 Node 内置 test runner（无需新增依赖）
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
+const path = require('path');
 
 process.env.UPLOAD_SECRET = 'test-secret';
 
 const validateHandler = require('./validate');
 const submitHandler = require('./submit');
+const botServerPath = path.resolve(__dirname, '../../dist/upload/server.js');
+
+function loadBotServer(secret) {
+  if (secret) {
+    process.env.UPLOAD_SECRET = secret;
+  } else {
+    delete process.env.UPLOAD_SECRET;
+  }
+
+  delete require.cache[require.resolve(botServerPath)];
+  return require(botServerPath);
+}
 
 // 按当前 TOKEN_*_HEX_LEN 常量构造一个合法 token，方便测试用例复用
 function buildValidToken(handler, secret, timestampMs) {
@@ -35,11 +48,6 @@ for (const [name, handler] of [['validate.js', validateHandler], ['submit.js', s
     assert.strictEqual(handler.TOKEN_TTL_MS, 5 * 60 * 1000);
   });
 
-  test(`${name}: 合法 token 通过验证`, () => {
-    const token = buildValidToken(handler, 'test-secret');
-    assert.strictEqual(handler.verifyToken(token, 'test-secret'), true);
-  });
-
   test(`${name}: 旧格式（28 字符，32 bit HMAC）token 被拒绝`, () => {
     const ts = Date.now().toString(16).padStart(11, '0').slice(0, 11);
     const nonce = 'abcdef123';
@@ -65,3 +73,25 @@ for (const [name, handler] of [['validate.js', validateHandler], ['submit.js', s
     assert.strictEqual(handler.verifyToken(token, 'test-secret'), false);
   });
 }
+
+test('bot 生成的 token 可被 validate.js 与 submit.js 验证', () => {
+  const botServer = loadBotServer('test-secret');
+  const token = botServer.generateToken();
+
+  assert.match(token, /^[0-9a-f]{36}$/);
+  assert.strictEqual(validateHandler.verifyToken(token), true);
+  assert.strictEqual(submitHandler.verifyToken(token, 'test-secret'), true);
+});
+
+test('未设置 UPLOAD_SECRET 时 bot 拒绝生成 token', () => {
+  const botServer = loadBotServer('');
+
+  try {
+    assert.throws(
+      () => botServer.generateToken(),
+      /UPLOAD_SECRET 未設定/
+    );
+  } finally {
+    process.env.UPLOAD_SECRET = 'test-secret';
+  }
+});
