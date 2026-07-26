@@ -9,6 +9,9 @@ import * as os from 'os'
 // 最大下载大小 50MB
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 
+// 最大解压后总大小 50MB，防止高压缩比 zip（zip bomb）耗尽内存
+const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+
 // 解压结果：文件路径 -> Buffer 的映射
 export interface ExtractedFiles {
   [filePath: string]: Buffer
@@ -81,12 +84,22 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
   // 找到所有文件的公共前缀（顶层文件夹名）
   const commonPrefix = findCommonPrefix(fileEntries.map((f) => f.zipPath))
 
+  // 逐个解压 entry 并累加已解压字节数，一旦超过上限立即中止，
+  // 防止高压缩比 zip 在解压阶段把内存撑爆（zip bomb）
+  let uncompressedBytes = 0
   for (const { zipPath, entry } of fileEntries) {
     const relPath = commonPrefix
       ? zipPath.slice(commonPrefix.length).replace(/^[\\/]/, '')
       : zipPath
 
     const data = await entry.async('nodebuffer')
+    uncompressedBytes += data.length
+    if (uncompressedBytes > MAX_UNCOMPRESSED_BYTES) {
+      const sizeMB = (uncompressedBytes / (1024 * 1024)).toFixed(1)
+      throw new Error(
+        `投稿包解压后大小超过限制 (已超过 ${sizeMB}MB)，超过限制 ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)}MB`
+      )
+    }
     result[relPath] = data
   }
 
