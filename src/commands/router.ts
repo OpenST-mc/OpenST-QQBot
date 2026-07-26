@@ -211,10 +211,10 @@ export async function routeMessage(event: QqMessageEvent): Promise<void> {
     // 群聊：仅 @bot /command 生效，纯文本不自动转 /ask
     if (event.sourceType === 'group') return
 
-    // 私聊非白名单用户只允许 /ping 和 /upload 命令，纯文本不响应
-    if (!isAllowed(event)) {
+    // 私聊仅允许 /ping 和 /upload 命令，纯文本不响应
+    if (event.sourceType === 'c2c') {
       console.log(
-        `[Router] 拦截非白名单用户私聊: user_openid=${event.author.id}`
+        `[Router] 拦截私聊非命令消息: user_openid=${event.author.id}`
       )
       return
     }
@@ -246,17 +246,23 @@ export async function routeMessage(event: QqMessageEvent): Promise<void> {
 
   const commandName = '/' + match[1].toLowerCase()
 
-  // 白名单检查（/ping 和 /upload 始终放行）
-  if (commandName !== '/ping' && commandName !== '/upload' && !isAllowed(event)) {
-    if (event.sourceType === 'group') {
-      console.log(
-        `[Router] 拦截非白名单群组消息: group_openid=${event.groupOpenid}`
-      )
-    } else {
-      console.log(
-        `[Router] 拦截非白名单用户消息: user_openid=${event.author.id}`
-      )
-    }
+  // /ping 和 /upload 始终放行
+  if (commandName === '/ping' || commandName === '/upload') {
+    // 直接执行，跳过白名单检查
+  }
+  // 私聊：仅允许 /ping 和 /upload，其余命令一律禁止
+  else if (event.sourceType === 'c2c') {
+    console.log(
+      `[Router] 拦截私聊命令: user_openid=${event.author.id}` +
+      ` | command=${commandName}`
+    )
+    return
+  }
+  // 群聊：白名单检查
+  else if (!isAllowed(event)) {
+    console.log(
+      `[Router] 拦截非白名单群组消息: group_openid=${event.groupOpenid}`
+    )
     return
   }
 
