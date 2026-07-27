@@ -188,22 +188,32 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 
 ```text
 {
-  candidate_type: 'term' | 'community_note' | 'claim' | 'discard' | 'needs_review',
-  normalized_title: string,
-  normalized_content: string,
-  term_refs: string[],
-  source_raw_asset_id: number,
-  quality_flags: string[],
+  candidateType: 'term' | 'community_note' | 'claim' | 'discard' | 'needs_review',
+  normalizedTitle: string,
+  normalizedContent: string,
+  termRefs: string[],
+  qualityFlags: string[],
   confidence: number,
-  rationale: string
+  rationale: string,
+  rawAssetId: number
 }
 ```
+
+欄位名稱與 KNOWLEDGE_SYSTEM_PLAN.md 的「AI JSON 契約」一致，一律 camelCase。
+schema 採 JSON Schema Draft 2020-12 並設定 `additionalProperties: false`；
+候選陣列上限 20、單一候選正文上限 1,500 Unicode code points、`confidence` 介於 0 與 1。
+
+`document_quality` 與 `conflict_review` 的頂層欄位不同，各自見計畫的契約表：
+前者輸出 `documentOutcome`、`completedHeadings`、`excludedHeadings`、`qualityFlags`、
+`versionCandidates`、`claimCandidates`、`rationale`、`rawAssetId`；
+後者輸出 `conflicts`、`supportingEvidence`、`contradictingEvidence`、
+`missingEvidence`、`recommendation`、`rationale`。
 
 規則：
 
 - 無法判斷、資訊不足或發現互相衝突的事實時，必須輸出 `needs_review`，不得猜測。
-- `quality_flags` 只能使用 `src/db/enums.ts`（T0.2）定義的值。
-- `term_refs` 是文字形式的術語候選，不是資料庫 ID；比對交給 T2.6。
+- `qualityFlags` 只能使用 `src/db/enums.ts`（T0.2）定義的值。
+- `termRefs` 是文字形式的術語候選，不是資料庫 ID；比對交給 T2.6。
 - 模型不得輸出審核狀態、`approved` 或任何最終決定。
 
 ### 7.2 Pro 的介入條件
@@ -218,11 +228,15 @@ Pro 的輸出仍然只是 `extraction_candidates`，不得直接建立正式資�
 
 ### 7.3 失敗處理
 
-AI 回應不是合法 JSON、schema 驗證失敗或 `source_raw_asset_id` 回鏈錯誤時：
+收到 Markdown、非 JSON、缺欄位、額外頂層欄位、錯誤 enum、無效 Raw ID 或內容雜湊不符時：
 
 - `ai_runs.status` 記為 `invalid`，保存原始輸出。
+- 建立 `invalid_ai_output` 品質旗標。
 - 不建立任何候選。
 - Raw 結果維持 `candidate` 之前的狀態，等待重試；**不得**因 AI 失敗而讓資料前進。
+
+同一個 job 的 timeout、重試與 HTTP 錯誤重送不超過 3 次；第 3 次失敗後標記 `failed`，
+等待 Raw 檔變更或人工建立新 job，不無限重試。
 
 ## 8. materialize 規則
 
@@ -316,13 +330,16 @@ T2.4 匯入器實作後，必須以真實 Flash／Pro 輸出重新錄製同一�
 
 本文件用到兩個 KNOWLEDGE_SYSTEM_PLAN.md 的品質旗標清單尚未包含的值：
 
-| 旗標 | 用途 | 來源規則 |
+| 旗標 | 用途 | 定義處 |
 | --- | --- | --- |
-| `unsupported_format` | 副檔名不在支援清單 | 第 4 節 |
-| `parse_error` | Markdown / HTML parser 失敗 | 第 4 節、R1 |
+| `unsupported_format` | 副檔名不在支援清單 | 本文件第 4 節 |
+| `parse_error` | Markdown / HTML parser 失敗 | 本文件第 4 節、R1 |
+| `invalid_ai_output` | AI 回覆不合法或回鏈錯誤 | 本文件第 7.3 節、計畫「AI JSON 契約」 |
+| `oversized_block` | 單一原子區塊超過 800 code points | 計畫 T2.3 Chunk 演算法 |
 
-T0.2 建立 `src/db/enums.ts` 時必須一併納入這兩個值，否則本文件的規則無法以枚舉表達。
-在 T0.2 合併前，本文件是這兩個值的唯一定義處。
+T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則無法以枚舉表達。
+前兩個在 T0.2 合併前以本文件為唯一定義處；後兩個散見於計畫他處，一併在此登記，
+避免 T0.2 只照計畫第 503 行的 11 個值實作而漏掉。
 
 ## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 的差異
 
@@ -344,7 +361,18 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這兩個值，否則本文�
 3. 區塊級呼叫成本與輸出量隨文件長度線性成長，逐塊判斷又失去全文脈絡；
    導航頁與 404 頁在區塊級也無法整份排除。區段取捨改由第 5.3 節的確定性規則負責。
 
-第三項是本期最可能需要回頭調整的：若 Phase 2 發現長文件的單一候選過於粗糙，
+另有兩項不是設計選擇，而是尚未具備條件的暫定值，實作對應 Track 時必須修正：
+
+| 項目 | 現況 | 修正時機 |
+| --- | --- | --- |
+| `prompt_version` | 種子 Fixture 使用 `<task_type>@1` 佔位 | 計畫要求為 `system.md` + `schema.json` 的 SHA-256 前 12 碼；`agent/tasks/<task_type>/` 由 T2.4 建立後重錄 |
+| `rawAssetId` | 固定 `0` | 重播 runner 以實際 `raw_assets.id` 取代（見第 9 節） |
+
+`document_quality` 的 `completedHeadings` 與 `excludedHeadings` 屬**建議值**。
+與第 5.3 節確定性規則衝突時，一律以確定性規則為準，並記錄兩者差異供審核者檢視；
+模型不得改變哪些區段可被引用。
+
+第三項差異是本期最可能需要回頭調整的：若 Phase 2 發現長文件的單一候選過於粗糙，
 可在不改變確定性規則的前提下，改為對已通過 5.3 的區段各發一次 `document_triage`。
 屆時 Fixture 的 `input_hash` 需改以區段內容計算，本節必須同步更新。
 

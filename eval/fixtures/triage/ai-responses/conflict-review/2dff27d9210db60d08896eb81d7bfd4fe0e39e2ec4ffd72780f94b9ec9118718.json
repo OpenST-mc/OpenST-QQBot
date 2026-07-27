@@ -8,18 +8,45 @@
   "approved_by": "woodengrass",
   "approved_at": "2026-07-28T00:00:00.000Z",
   "response": {
-    "candidate_type": "needs_review",
-    "normalized_title": "漏斗传输冷却时长的冲突：7gt 与 8gt",
-    "normalized_content": "两份来源对漏斗成功传输后的冷却时长给出不同数值。来源 A（社群笔记，纯文本，未标注版本与运行环境）主张固定 7gt 且适用所有版本。来源 B（wiki 导出，明确限定 Java 版 1.21 原版）记载 8gt，并附有对应代码片段。两者的差异无法只凭文本判定：来源 A 未提供版本、环境与测量方法，其「所有版本一致」的表述本身超出其证据范围。在取得可重现实测或原始码依据之前，不得择一作为已验证事实。",
-    "term_refs": ["漏斗", "传输冷却", "gt"],
-    "source_raw_asset_id": 0,
-    "quality_flags": ["conflicting_fact"],
-    "confidence": 0.45,
-    "rationale": "冲突为数值冲突而非表述差异，且其中一方缺少版本与环境条件，无法以版本范围拆解为两条互不冲突的 Claim。依 T0.5 规则输出 needs_review 候选，等待人工审核或实验数据，不得 materialize 为 pending。",
-    "reviewer_questions": [
-      "社群笔记对应的是哪个版本与运行环境（原版／Fabric／Paper）？",
-      "7gt 的说法是来自实测、原始码，还是转述？",
-      "是否存在特定时序条件下确实观测到 7gt 的情形？"
-    ]
+    "conflicts": [
+      {
+        "topic": "漏斗成功传输后的冷却时长",
+        "positions": [
+          {
+            "statement": "冷却固定为 7gt，所有版本一致",
+            "evidenceRawIds": [0],
+            "declaredScope": "未标注版本与运行环境"
+          },
+          {
+            "statement": "冷却为 8gt",
+            "evidenceRawIds": [0],
+            "declaredScope": "Java 1.21 原版"
+          }
+        ],
+        "resolvable": false,
+        "reason": "两个数值互斥，且其中一方缺少版本与环境条件，无法拆分为互不冲突的版本范围。"
+      }
+    ],
+    "supportingEvidence": [
+      {
+        "statement": "冷却为 8gt",
+        "evidenceRawIds": [0],
+        "note": "来源限定 Java 1.21 原版，并附对应代码片段。"
+      }
+    ],
+    "contradictingEvidence": [
+      {
+        "statement": "冷却固定为 7gt 且适用所有版本",
+        "evidenceRawIds": [0],
+        "note": "社群笔记，未说明来源为实测、原始码还是转述。"
+      }
+    ],
+    "missingEvidence": [
+      "社群笔记对应的游戏版本与运行环境（原版／Fabric／Paper）",
+      "7gt 说法的取得方式：实测、原始码或转述",
+      "是否存在特定时序条件下确实观测到 7gt 的情形"
+    ],
+    "recommendation": "insufficient_evidence",
+    "rationale": "冲突为数值冲突而非表述差异。社群笔记宣称适用所有版本，已超出其自身证据范围；在取得可重现实测或原始码依据之前，不得择一作为已验证事实。依 T0.5 规则只建立 needs_review 候选，不得 materialize 为 pending。"
   }
 }
