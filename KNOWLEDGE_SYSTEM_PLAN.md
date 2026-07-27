@@ -80,7 +80,7 @@
 | --- | --- | --- |
 | `sources` | `id`, `source_key`, `type`, `name`, `creator`, `url`, `license`, `license_url`, `visibility`, `trust_level`, `created_at` | 登記 GTMC、詞典、社群資料等來源；`source_key` 是匯入器使用的穩定來源鍵，`visibility` 控制是否可公開 |
 | `import_runs` | `id`, `source_id`, `importer_version`, `started_at`, `finished_at`, `status`, `summary` | 保留每次匯入的版本、結果與錯誤，不讓匯入成為不可追溯覆蓋 |
-| `raw_assets` | `id`, `import_run_id`, `source_path`, `content`, `content_hash`, `encoding`, `logical_record_no`, `status` | 原始檔、CSV 邏輯記錄或 Markdown 快照；永不因清理而遺失 |
+| `raw_assets` | `id`, `import_run_id`, `relative_path`, `content_hash`, `encoding`, `logical_record_no`, `status` | Raw 原始檔、CSV 邏輯記錄或 Markdown 快照的路徑與 metadata；正文永不寫入 SQLite |
 | `content_quality_flags` | `id`, `raw_asset_id`, `flag_type`, `detected_by`, `evidence`, `status` | 404、空內容、導航、重複、拼寫疑慮、衝突或未完成等品質旗標 |
 | `ai_jobs` | `id`, `raw_asset_id`, `task_type`, `payload`, `status`, `attempts`, `available_at`, `last_error` | 背景 AI 分流的可恢復工作佇列；掃描器只入隊、不阻塞 Bot |
 | `documents` | `id`, `source_id`, `path_or_url`, `title`, `language`, `content_hash`, `status`, `created_at`, `updated_at` | 一篇完整 Markdown、日誌或匯入文件 |
@@ -164,9 +164,9 @@ Claim 的向量索引應以 `claims.id` 關聯，與文件 Chunk 向量索引分
 ### 匯入基本流程
 
 1. 建立或確認 `source`，建立可追溯的 `import_run`。
-2. 保存原始內容、編碼、邏輯記錄號與 SHA-256 `content_hash` 至 `raw_assets`。
-3. 同一來源、同一路徑、同一雜湊的內容不重複匯入，但保留匯入紀錄。
-4. 先以確定性規則標記 404、空內容、導航、重複、錯誤連結與格式錯誤。
+2. 保存原始內容、編碼、邏輯記錄號與正規化內容的 SHA-256 `content_hash` 至 `raw_assets`。
+3. 同一來源、同一路徑、同一正規化雜湊的內容不重複匯入，但保留匯入紀錄。
+4. 先以確定性規則標記 404、空內容、重複與格式錯誤；導航與失效連結在結構解析後按區段判定。
 5. 再解析文件結構、術語、版本提示與 AI 候選；AI 結果保存至 `ai_runs` 與 `extraction_candidates`。
 6. 僅將通過品質門檻的內容分流為 term、document、chunk 或 community note。
 7. 匯入資料預設進入 `pending` 或依來源政策決定狀態。
@@ -396,15 +396,15 @@ SQLite 遷移不是搬檔案。所有舊資料先進 `raw_assets`，再依下列
 | 來源情況 | 處理 | 目標資料 |
 | --- | --- | --- |
 | GTMC 合格技術文章 | 保留原文件、依標題切 chunk；結構解析後以 AI 補充內容品質、版本與 Candidate Claim，記錄品質結果 | `documents`、`document_chunks`、`extraction_candidates` |
-| GTMC 404、空序言、純目錄、僅提綱、失效連結文件 | 建立品質旗標，不建立可檢索 chunk | `raw_assets`、`content_quality_flags` |
+| GTMC 404、空序言、純目錄、僅提綱、失效連結文件 | 建立品質旗標；純導航或失效連結只排除對應區段，整份文件無有效正文時才不建立可檢索 chunk | `raw_assets`、`content_quality_flags` |
 | 任意 Raw 來源中的完全相同文件 | 不重複建立文件或向量，只建立來源追溯關係 | `raw_assets`、provenance 關聯 |
 | CSV 中短術語、中英翻譯、縮寫 | AI 比對 dictionary/Glossary 後，建立 alias 或 translation 候選 | `extraction_candidates` |
 | CSV 中有獨立價值的社群解釋 | AI 整理為結構化 community note 或 Claim 候選 | `extraction_candidates` |
 | CSV 中拼寫錯誤、同義重複、混合兩個概念、衝突事實 | 標記品質問題並建立修正或拆分候選，不直接進索引 | `content_quality_flags`、`extraction_candidates` |
 
-歷史 `database.csv` 的救援遷移不在本 Plan 主線執行，必須另立 session、分支、Fixture 與人工驗收規格。主線只定義未來新增 Raw 文件的通用攝取：確定性規則先處理雜湊重複、空內容、404、導航與格式錯誤；AI 再判斷文件區塊是術語、教學、Claim 或需要人工處理的內容。
+歷史 `database.csv` 的救援遷移不在本 Plan 主線執行，必須另立 session、分支、Fixture 與人工驗收規格。主線只定義未來新增 Raw 文件的通用攝取：確定性規則先處理正規化雜湊重複、空內容、404 與格式錯誤；結構解析再按區段判定導航與失效連結；AI 對整個 Raw 資產執行 triage，產生術語、教學、Claim 或需要人工處理的候選。
 
-AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`normalized_title`、`normalized_content`、`term_refs`、`source_raw_asset_id`、`quality_flags`、`confidence` 與 `rationale`。候選先存入 `extraction_candidates`；通過 JSON schema、來源回鏈與品質規則後，系統自動 materialize 為 `pending` 的術語、知識或 Claim。`include_pending` 模式只可使用這些已結構化的 pending 項目，不能直接檢索 CSV 原文；任何候選都不得自動成為 `approved`。
+AI 必須以 Raw 資產為單位輸出可驗證的 triage 結果，包含 `source_raw_asset_id` 與零至多筆候選；每筆候選至少包含 `candidate_type`、`normalized_title`、`normalized_content`、`term_refs`、`quality_flags`、`confidence` 與 `rationale`。候選先存入 `extraction_candidates`；通過 JSON schema、來源回鏈與品質規則後，系統自動 materialize 為 `pending` 的術語、知識或 Claim。`include_pending` 模式只可使用這些已結構化的 pending 項目，不能直接檢索 CSV 原文；任何候選都不得自動成為 `approved`。
 
 ## 里程碑總覽
 
@@ -457,9 +457,9 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 | SQLite 備份 | 本期暫不實作 | Phase 1 僅記錄風險與 DB 路徑；後續另立備份 Track |
 | SQLite 路徑 | `public/database/knowledge.db` | 第一版不加入 gitignore；後續可加環境變數覆蓋與備份策略 |
 | SQLite 主鍵 | 所有內部表使用 `INTEGER PRIMARY KEY AUTOINCREMENT` | 對外不得暴露內部 ID；每個可引用 Chunk 的公開 ID 由 `source_references.id` 衍生 |
-| Raw 內容 | Raw 目錄是唯一完整原文 | `raw_assets` 只保存來源路徑、邏輯記錄號、雜湊、編碼與處理 metadata，不複製正文至 SQLite |
+| Raw 內容 | Raw 目錄是唯一完整原文 | `raw_assets` 只保存來源路徑、邏輯記錄號、正規化內容雜湊、編碼與處理 metadata，不複製正文至 SQLite |
 | DB 版本控制 | 提交完整 `knowledge.db` | DB 包含整理資料、AI 候選、審核紀錄與向量；Raw 原文仍以檔案管理 |
-| 啟動匯入 | migration 後掃描 Raw 目錄與機器 JSON | Raw 以 manifest 比對未匯入或雜湊已改變檔案並自動增量匯入；`database.json` 雜湊變更時直接同步 machines，不經 AI |
+| 啟動匯入 | migration 後掃描 Raw 目錄與機器 JSON | Raw 以 manifest 比對未匯入或正規化內容雜湊已改變檔案並自動增量匯入；`database.json` 雜湊變更時直接同步 machines，不經 AI |
 | AI API | Flash／Pro 共用現有 API，均支援 JSON | 僅 API Key 讀環境變數；模型 ID 以集中常數 `DEEPSEEK_MODEL_FLASH`、`DEEPSEEK_MODEL_PRO` 定義；不納入費率與配額處理 |
 | 本地引用 ID | Bot 維護 `SRC-00000001` 全域流水號 | 每個可引用 Chunk 一個 ID；首次建立後永不改變或重用；不包含外部網站功能 |
 | 歷史 CSV／Markdown 與社群內容 | Raw 僅內部保存 | 每個整理後可引用 Chunk 保留 `SRC-*`；一般回答只輸出核准後內容與匿名「社群整理」署名，不輸出 Raw、QQ ID 或群組 ID |
@@ -531,17 +531,17 @@ expected_answer_properties, expected_uncertainty, status
 **確定性前置規則**：
 
 1. CSV 僅以 RFC 4180 parser 讀取；禁止按換行切割。
-2. 空內容、404、純導航、僅目錄、僅標題、失效連結先建立品質旗標。
-3. 檔案雜湊精確重複時，保留所有 Raw，但只選一個 canonical source；其他副本只能建立 provenance。
+2. 空內容、404、僅目錄、僅標題先建立資產級品質旗標；純導航與失效連結在結構解析後建立區段級品質旗標，不得因單一導航區段排除含有效正文的資產。
+3. 正規化內容雜湊精確重複時，保留所有 Raw，但只選一個 canonical source；其他副本只能建立 provenance。
 4. 已知術語的大小寫、空白與括號格式只可正規化為比對鍵，不可改寫 Raw 原文。
 5. 部分完成文件只保留已完成段落；標示「暫未完成」的段落建立 `stub` 旗標且不切入索引。
 6. 文字正文完整但圖片或相對連結失效時，保留正文與 Chunk，建立 `broken_link` 旗標；不刪除原始連結語法。
 
-**Flash 的 `document_triage` 結構化輸出**：每個非重複 Raw 區塊輸出 `candidate_type`（`term`, `community_note`, `claim`, `discard`, `needs_review`）、正規化標題與正文、引用的 Raw ID、相關 term 候選、品質旗標、理由與信心值。輸出必須通過 JSON schema；無法判斷或含衝突事實時輸出 `needs_review`，不得猜測。
+**Flash 的 `document_triage` 結構化輸出**：每個非重複 Raw 資產執行一次 triage，輸出該資產的 Raw ID 與零至多筆候選。每筆候選包含 `candidate_type`（`term`, `community_note`, `claim`, `discard`, `needs_review`）、正規化標題與正文、相關 term 候選、品質旗標、理由與信心值。輸出必須通過 JSON schema；無法判斷或含衝突事實時輸出 `needs_review`，不得猜測。
 
 **Pro 的介入條件**：只有 `conflicting_fact`、`mixed_concepts`、跨多個文件／詞典來源或 Flash 無法分類的項目，才使用 Pro 產生比較報告與 Candidate Claim。Pro 輸出仍只是 `extraction_candidate`。
 
-**materialize 規則**：候選具有有效 Raw 回鏈、合法 JSON、非空正文且未帶阻擋品質旗標時，自動建立 `pending` 項目。`discard`、`not_found`、`navigation`、`stub`、`duplicate_exact` 不 materialize。`possible_typo`、`mixed_concepts`、`conflicting_fact` 只建立 `needs_review` 型候選，不可 materialize 為 pending 或進 Answer Index。
+**materialize 規則**：候選具有有效 Raw 回鏈、合法 JSON、非空正文且未帶阻擋品質旗標時，自動建立 `pending` 項目。`discard`、`not_found`、`navigation`、`stub`、`duplicate_exact` 不 materialize；`navigation` 只影響被標記的區段候選，不排除同一資產的其他有效候選。`possible_typo`、`mixed_concepts`、`conflicting_fact` 只建立 `needs_review` 型候選，不可 materialize 為 pending 或進 Answer Index。
 
 **驗收**：清理作業必須輸出每個 Raw ID 的唯一結果：`provenance_only`、`candidate`、`pending` 或 `excluded`，並可由報告追溯原因、規則版本與 AI run ID。
 
@@ -562,7 +562,7 @@ eval/fixtures/triage/
 `document-expected.json` 的每筆資料固定包含：
 
 ```text
-source_path, logical_record_no, raw_content_hash, expected_outcome,
+source_path, logical_record_no, normalized_content_hash, expected_outcome,
 expected_candidate_type, required_flags, forbidden_flags,
 expected_completed_headings, excluded_headings,
 required_flags, broken_links, public_visibility, notes
@@ -576,7 +576,7 @@ source_path, logical_record_no, canonical_source_path, duplicate_hash, relation
 
 其中 `relation` 在本期只允許 `exact_duplicate`。Fixture 使用一組核准的代表性 Markdown、HTML、文字、部分完成文件、導航頁、404 頁與重複內容案例；它驗證管線能力，不要求每一份未來來源逐筆人工預先分類。新增 parser 或品質規則時，必須加入對應 Fixture 並經知識審核者核准。
 
-AI 回覆 Fixture 的檔名使用輸入 Raw 內容的 SHA-256，不使用模型生成的標題。每份 Fixture 必須包含 `task_type`、`model`、`prompt_version`、`input_hash`、`response`、`approved_by`、`approved_at`。模型升級或 prompt 變更時，舊 Fixture 不覆蓋；以新版本檔案並列保存，並由評測題庫明確指定採用哪個版本。
+AI 回覆 Fixture 的檔名使用輸入 Raw 正規化內容的 SHA-256，不使用模型生成的標題。每份 Fixture 必須包含 `task_type`、`model`、`prompt_version`、`input_hash`、`response`、`approved_by`、`approved_at`。模型升級或 prompt 變更時，舊 Fixture 不覆蓋；以新版本檔案並列保存，並由評測題庫明確指定採用哪個版本。
 
 ---
 
@@ -594,7 +594,7 @@ AI 回覆 Fixture 的檔名使用輸入 Raw 內容的 SHA-256，不使用模型�
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T1.2 | `sources`、`import_runs`、`raw_assets`、`content_quality_flags`、`ai_jobs`、`ai_runs`、`extraction_candidates` 表與來源註冊工具 | T1.1 | schema、`registerSource()`、raw snapshot 工具 | 同雜湊不重複匯入；來源、檔案參照、編碼、品質旗標、可恢復 AI 佇列與候選均可查詢；Raw 正文不寫入 SQLite |
+| T1.2 | `sources`、`import_runs`、`raw_assets`、`content_quality_flags`、`ai_jobs`、`ai_runs`、`extraction_candidates` 表與來源註冊工具 | T1.1 | schema、`registerSource()`、raw snapshot 工具 | 同正規化雜湊不重複匯入；來源、檔案參照、編碼、品質旗標、可恢復 AI 佇列與候選均可查詢；Raw 正文不寫入 SQLite |
 | T1.3 | `machines` / `machine_tags` / `machine_relations` 建表 | T1.1 | schema 檔 | `machine_relations` 建立但本階段不寫入；`machine_terms` 等 T2.2 建立 `terms` 後再建立；機器資料不建立 `source_references`，維持既有 OpenST 檔案庫連結 |
 | T1.5a | **遷移前**基準快照：對評測題庫的機器推薦類問題執行現行 `searchMachines()`，記錄各題 top-5 `sub_id` 順序 | T0.4 | `eval/baseline-machines.json` | 必須在 T1.4 改動程式碼**之前**完成 |
 
@@ -609,7 +609,7 @@ AI 回覆 Fixture 的檔名使用輸入 Raw 內容的 SHA-256，不使用模型�
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T1.2a | Raw 目錄增量掃描器：掃描與監看本機 `public/database/raw/`，讀取／更新 `import-manifest.json`，只派送新增或 SHA-256 改變的檔案至匯入管線 | T1.1, T1.2, T1.2b | `src/db/import/rawScanner.ts`、`public/database/raw/import-manifest.json` | Bot 啟動時 migration 後自動執行；本機檔案變更後自動增量掃描；未變更檔案不重複派送；manifest 記錄相對路徑、雜湊、最後匯入時間、import run ID 與結果；同一時間只允許一個掃描／匯入作業；不提供 QQ 手動觸發命令 |
+| T1.2a | Raw 目錄增量掃描器：掃描與監看本機 `public/database/raw/`，讀取／更新 `import-manifest.json`，只派送新增或正規化內容 SHA-256 改變的檔案至匯入管線 | T1.1, T1.2, T1.2b | `src/db/import/rawScanner.ts`、`public/database/raw/import-manifest.json` | Bot 啟動時 migration 後自動執行；本機檔案變更後自動增量掃描；未變更檔案不重複派送；manifest 記錄相對路徑、正規化雜湊、最後匯入時間、import run ID 與結果；同一時間只允許一個掃描／匯入作業；不提供 QQ 手動觸發命令 |
 | T1.4b | `services/data.ts` 改接 SQLite，對外型別與呼叫端零改動 | T1.4a | 改寫後的 `loadMachineDatabase()` | `MachineEntry[]` 介面不變；`searchMachines()` 不需修改 |
 
 ### 批次 1-E
@@ -777,7 +777,7 @@ CREATE INDEX extraction_candidates_status ON extraction_candidates(status, candi
 CREATE INDEX extraction_candidates_raw ON extraction_candidates(raw_asset_id);
 ```
 
-`raw_assets` 絕不含完整正文；`relative_path + logical_record_no + content_hash` 足以從 Raw 目錄重建原始內容。`asset_key` 格式固定為 `<source_key>:<relative_path>:<logical_record_no-or-file>:<sha256>`，並以 source key、正斜線相對路徑、十進位邏輯記錄號與小寫 SHA-256 組成。
+`raw_assets` 絕不含完整正文；`relative_path + logical_record_no + content_hash` 足以從 Raw 目錄重建原始內容。`content_hash` 與 `asset_key` 中的 `<sha256>` 均為正規化內容的小寫 SHA-256；`asset_key` 格式固定為 `<source_key>:<relative_path>:<logical_record_no-or-file>:<sha256>`。
 
 #### T1.3 機器資料 DDL
 
@@ -1671,7 +1671,7 @@ DeepSeek V4 Flash 適合高頻、低風險、可由人工覆核的候選產生�
 
 | task_type | 模型 | 頂層輸出欄位 | 禁止行為 |
 | --- | --- | --- | --- |
-| `document_triage` | Flash | `candidateType`, `normalizedTitle`, `normalizedContent`, `termRefs`, `qualityFlags`, `confidence`, `rationale`, `rawAssetId` | 不得輸出未在輸入提供的來源、版本或事實 |
+| `document_triage` | Flash | `rawAssetId`, `candidates`；每筆 candidate 含 `candidateType`, `normalizedTitle`, `normalizedContent`, `termRefs`, `qualityFlags`, `confidence`, `rationale` | 不得輸出未在輸入提供的來源、版本或事實 |
 | `document_quality` | Flash | `documentOutcome`, `completedHeadings`, `excludedHeadings`, `qualityFlags`, `versionCandidates`, `claimCandidates`, `rationale`, `rawAssetId` | 不得將 stub／導航段落標為 completed |
 | `term_normalize` | Flash | `termCandidates`, `aliasCandidates`, `definitionCandidates`, `possibleTypos`, `rationale` | 不得自定 canonical definition |
 | `claim_extract` | Flash | `claims`, `conditions`, `exceptions`, `evidenceRawIds`, `confidence`, `rationale` | 不得輸出 `approved` 狀態 |
