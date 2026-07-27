@@ -58,6 +58,9 @@ Wiki 匯出 HTML 與純文字教學。
 | HTML / Wiki 匯出 | `.html`, `.htm` | `unified` + `rehype-parse` + `rehype-remark` | 同上，先做 DOM 裁剪 |
 | 純文字 | `.txt` | 空行分段 parser | 非空段落與換行列表 |
 
+純文字沒有標題語法，因此第一個非空行作為文件標題，其餘內容全部屬於單一根區段；
+不從內文猜測次級標題。`/learn` 投稿在寫入 Raw 後亦以此格式處理。
+
 其他副檔名建立 `unsupported_format` 旗標，結果為 `excluded`，不建立 AI job。
 
 HTML 裁剪規則（解析前執行，不執行任何 HTML、JavaScript 或外部請求）：
@@ -93,6 +96,7 @@ AI 之前先執行，全部為純函式，可單獨測試。規則版本以 `ing
 | R5 | 區段無內容、內容為連結清單或低於內容下限（見 5.3） | `stub` / `navigation` | 該區段不切 Chunk |
 | R6 | 站內相對連結或圖片指向不存在的檔案 | `broken_link` | 保留正文，不刪連結語法 |
 | R7 | 正規化雜湊與既有資產完全相同 | `duplicate_exact` | `provenance_only` |
+| R8 | 術語比對鍵正規化（見 5.5） | 無 | 只影響比對，不影響結果 |
 
 ### 5.1 `not_found` 判定
 
@@ -127,6 +131,14 @@ H1 之前的內容視為文件根區段。
 | S1 區段無任何內容區塊 | `stub` |
 | S2 區段內容區塊有 ≥ 80% 為連結項目（站內或外部皆計） | `navigation` |
 | S3 區段敘述文字 < 120 字元，且不含表格、程式碼區塊或圖片 | `stub` |
+| S4 區段內容含未完成標記（見下） | `stub` |
+
+S4 的未完成標記為作者明示的待補宣告，不是語意猜測。命中樣式（不分大小寫）：
+`暂未完成`、`暫未完成`、`未完成`、`待补充`、`待補充`、`待写`、`待寫`、`TODO`、`TBD`、
+`WIP`、`coming soon`、`under construction`。
+
+標記出現在區段內任一位置即排除整個區段：作者已宣告該段不可信，保留半份內容比不保留更危險。
+整份文件皆為未完成標記時由 R3 處理為 `not_found`。
 
 S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言` 一類章節引言；
 不因標題名稱而例外。含表格、程式碼區塊或圖片的短區段不受下限限制，因為其資訊量不在字數。
@@ -143,6 +155,18 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 只檢查站內相對連結與圖片（`./`、`../` 或不含 scheme 的路徑），以 Raw 目錄實際檔案存在性判定。
 
 外部 URL 一律不在匯入時請求，不因無法連線而標記；外部連結有效性不屬於本管線責任。
+
+### 5.5 術語比對鍵正規化
+
+與既有詞典、Glossary 比對術語時，只能對**比對鍵**做正規化，Raw 原文與 Chunk 正文一律保持原樣。
+
+比對鍵的正規化：轉小寫、全形轉半形、連續空白收斂為單一空格、去除頭尾空白、
+去除成對括號及其內容（`Block Update Detector (BUD)` → `block update detector`）。
+
+禁止把正規化結果寫回 Raw、Chunk、`normalized_content` 或任何可引用內容。
+`Signal Strength` 與 `signal strength` 命中同一個比對鍵，但兩者的原始寫法都必須可還原。
+
+大小寫或空白差異**不構成** `duplicate_exact`；`duplicate_exact` 只看第 2 節的正規化雜湊。
 
 ## 6. 去重與 provenance
 
@@ -231,6 +255,22 @@ AI 回應不是合法 JSON、schema 驗證失敗或 `source_raw_asset_id` 回鏈
 6. 審核狀態隔離：任何 Fixture 都不得產生 `approved`。
 7. 餵入未知或不合法 AI JSON 時，資料不得跳過 `pending`。
 
+### 不合法 AI 回覆的測試變體
+
+不另存「壞掉的 Fixture」檔案，改由 runner 從種子 Fixture**即時衍生**變體。
+理由：壞掉的 JSON 無法通過本文件自己的 Fixture 契約檢查，存成檔案會讓契約自相矛盾。
+
+runner 至少產生下列變體，每一種都必須被拒絕且不建立任何候選：
+
+| 變體 | 期望行為 |
+| --- | --- |
+| 截斷的 JSON 字串 | `ai_runs.status = 'invalid'`，保存原始輸出，不建立候選 |
+| `candidate_type` 為未知值 | 同上 |
+| `source_raw_asset_id` 指向不存在的資產 | 同上，且不得建立孤兒候選 |
+| 回覆多帶 `status: "approved"` 欄位 | 欄位被忽略，資料不得跳過 `pending` |
+| `quality_flags` 含枚舉外的值 | 同上 |
+| `confidence` 超出 0–1 | 同上 |
+
 本 Track 只交付規則與 Fixture 契約；重播 runner 依賴 T1.1／T1.2 的 DB 與匯入器，
 於對應 Track 實作。
 
@@ -284,6 +324,30 @@ T2.4 匯入器實作後，必須以真實 Flash／Pro 輸出重新錄製同一�
 T0.2 建立 `src/db/enums.ts` 時必須一併納入這兩個值，否則本文件的規則無法以枚舉表達。
 在 T0.2 合併前，本文件是這兩個值的唯一定義處。
 
+## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 的差異
+
+本文件在三處與計畫的 T0.5 條文不同。差異都是實作時對照真實資料後的修正，
+不是省略；採用本文件版本前應確認計畫文件同步更新。
+
+| 項目 | 計畫原文 | 本文件 |
+| --- | --- | --- |
+| 內容雜湊 | 原始內容的 SHA-256 | 正規化後的 SHA-256（第 2 節） |
+| 導航判定 | 「純導航」為文件層級判定 | 先做區段層級排除，再看剩餘區段（第 5.2 節） |
+| triage 粒度 | 每個非重複 Raw **區塊**輸出候選 | 每個 Raw **資產**輸出一個候選 |
+
+理由：
+
+1. 倉庫 `core.autocrlf=true`，工作區 CRLF 而 blob LF；原始位元組雜湊跨平台不一致，
+   會讓去重與 manifest 全部失效。
+2. 實測任何單一連結比例門檻都會誤判 `BlockUpdate/README.md` 或
+   `LoadingTicket/00-序.md` 其中一邊。
+3. 區塊級呼叫成本與輸出量隨文件長度線性成長，逐塊判斷又失去全文脈絡；
+   導航頁與 404 頁在區塊級也無法整份排除。區段取捨改由第 5.3 節的確定性規則負責。
+
+第三項是本期最可能需要回頭調整的：若 Phase 2 發現長文件的單一候選過於粗糙，
+可在不改變確定性規則的前提下，改為對已通過 5.3 的區段各發一次 `document_triage`。
+屆時 Fixture 的 `input_hash` 需改以區段內容計算，本節必須同步更新。
+
 ### 變更流程
 
 新增 parser、品質規則或旗標時，必須同時：
@@ -311,6 +375,7 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這兩個值，否則本文�
 | 空文件重複 | `gtmc-database/EntityMove/00-序.md` | 空內容同時重複時仍走 provenance |
 | Wiki 匯出 HTML | `samples/wiki-export-hopper.html` | DOM 裁剪、表格與程式碼保留 |
 | 純文字社群筆記 | `samples/community-note-hopper.txt` | 版本未知＋衝突事實 → `needs_review` |
+| `/learn` 投稿 | `samples/learn-submission-observer.txt` | 自帶版本的社群投稿 → `pending`，永不 `approved` |
 
 最後兩例互為衝突對：HTML 樣本敘述漏斗冷卻 8gt 且限定 Java 1.21，
 文字樣本主張固定 7gt 且宣稱全版本適用，用於驗證 `conflicting_fact` 與 Pro 介入路徑。

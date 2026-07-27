@@ -5,6 +5,8 @@
     "raw": "public/database/raw/",
     "fixture": "eval/fixtures/triage/samples/"
   },
+  "approved_by": "woodengrass",
+  "approved_at": "2026-07-28T00:00:00.000Z",
   "notes": "raw_content_hash 為 docs/document-ingestion.md 第 2 節定義的正規化 SHA-256，非原始位元組雜湊。T1.2b 尚未執行，raw 根實際仍為 public/database/；T1.2b 搬移完成後路徑即與本檔一致，雜湊不變。",
   "cases": [
     {
@@ -245,6 +247,22 @@
       "broken_links": [],
       "public_visibility": "internal",
       "notes": "確定性層可切出根區段，但候選為 needs_review 故不 materialize，因此不建立 Chunk；與 HTML 樣本的 8gt 敘述衝突。"
+    },
+    {
+      "source_root": "fixture",
+      "source_path": "learn-submission-observer.txt",
+      "logical_record_no": null,
+      "raw_content_hash":
+        "94d1b9ee581edac94d3933fb157d07150495fbfd91dbbb0baa58478d3929ff4f",
+      "expected_outcome": "pending",
+      "expected_candidate_type": "claim",
+      "required_flags": [],
+      "forbidden_flags": ["empty", "stub", "navigation", "not_found", "conflicting_fact"],
+      "expected_completed_headings": ["侦测器朝向与更新"],
+      "excluded_headings": [],
+      "broken_links": [],
+      "public_visibility": "internal",
+      "notes": "/learn 投稿範例。自帶版本與環境故可 materialize 為 pending；社群來源預設 internal，且任何路徑都不得使其成為 approved。"
     }
   ]
 }

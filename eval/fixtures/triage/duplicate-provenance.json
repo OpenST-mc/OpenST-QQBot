@@ -1,6 +1,8 @@
 {
   "version": 1,
   "ingestionRulesVersion": "t0.5-1",
+  "approved_by": "woodengrass",
+  "approved_at": "2026-07-28T00:00:00.000Z",
   "notes": "canonical 選擇規則：相對路徑字典序最小者。relation 本期只允許 exact_duplicate。",
   "pairs": [
     {
