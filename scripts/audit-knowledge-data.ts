@@ -22,7 +22,8 @@ import {
   computeDictionaryEntryStats,
   GlossaryStats,
   computeGlossaryStats,
-  hasUtf8Bom,
+  detectEncoding,
+  SourceEncoding,
   extractRelativeLinkTargets,
   classifyGtmcFile,
   diffValues
@@ -30,6 +31,16 @@ import {
 
 function readText(rootDir: string, relPath: string): string {
   return readFileSync(join(rootDir, relPath), 'utf-8')
+}
+
+function readEncoding(rootDir: string, relPath: string): SourceEncoding {
+  return detectEncoding(readFileSync(join(rootDir, relPath)))
+}
+
+// 多檔來源的整體編碼：全部一致則回報該編碼，否則回報 'mixed' 供人工檢查
+function summarizeEncodings(encodings: SourceEncoding[]): SourceEncoding | 'mixed' {
+  const unique = new Set(encodings)
+  return unique.size === 1 ? encodings[0] : 'mixed'
 }
 
 function parseCsv<T>(content: string): T[] {
@@ -43,18 +54,20 @@ function parseCsv<T>(content: string): T[] {
 // database.json 機器目錄稽核
 interface MachineAudit extends MachineStats {
   file: string
+  encoding: SourceEncoding
 }
 
 function auditMachines(rootDir: string): MachineAudit {
   const file = 'public/database/database.json'
   const entries = JSON.parse(readText(rootDir, file)) as RawMachineEntry[]
 
-  return { file, ...computeMachineStats(entries) }
+  return { file, encoding: readEncoding(rootDir, file), ...computeMachineStats(entries) }
 }
 
 // database.csv 歷史知識庫稽核（RFC 4180，禁止按換行切割）
 interface LegacyCsvAudit extends LegacyCsvStats {
   file: string
+  encoding: SourceEncoding
 }
 
 function readLegacyCsvRecords(rootDir: string): LegacyCsvRecord[] {
@@ -62,9 +75,11 @@ function readLegacyCsvRecords(rootDir: string): LegacyCsvRecord[] {
   return parseCsv<LegacyCsvRecord>(content)
 }
 
-function auditLegacyCsv(records: LegacyCsvRecord[]): LegacyCsvAudit {
+function auditLegacyCsv(rootDir: string, records: LegacyCsvRecord[]): LegacyCsvAudit {
+  const file = 'public/database/database.csv'
   return {
-    file: 'public/database/database.csv',
+    file,
+    encoding: readEncoding(rootDir, file),
     ...computeLegacyCsvStats(records)
   }
 }
@@ -72,19 +87,25 @@ function auditLegacyCsv(records: LegacyCsvRecord[]): LegacyCsvAudit {
 // database.md 歷史學習日誌稽核
 interface LegacyMarkdownAudit extends LegacyMarkdownStats {
   file: string
+  encoding: SourceEncoding
 }
 
 function auditLegacyMarkdown(rootDir: string): LegacyMarkdownAudit {
   const file = 'public/database/database.md'
-  return { file, ...computeLegacyMarkdownStats(readText(rootDir, file)) }
+  return {
+    file,
+    encoding: readEncoding(rootDir, file),
+    ...computeLegacyMarkdownStats(readText(rootDir, file))
+  }
 }
 
 // dictionary/ 稽核（英文詞條 + 中文翻譯 + 補充候選 Dictionary.txt）
 interface DictionaryAudit extends DictionaryEntryStats {
   entriesDir: string
   entryFileCount: number
+  encoding: SourceEncoding | 'mixed'
   zhTranslationCount: number
-  dictionaryTxt: DictionaryTxtStats & { file: string }
+  dictionaryTxt: DictionaryTxtStats & { file: string; encoding: SourceEncoding }
 }
 
 function auditDictionary(rootDir: string): DictionaryAudit {
@@ -97,8 +118,9 @@ function auditDictionary(rootDir: string): DictionaryAudit {
       JSON.parse(readText(rootDir, `${entriesDir}/${fileName}`)) as RawDictionaryEntry
   )
 
+  const zhTranslationsFile = 'public/database/dictionary/zh-translations.json'
   const zhTranslations = JSON.parse(
-    readText(rootDir, 'public/database/dictionary/zh-translations.json')
+    readText(rootDir, zhTranslationsFile)
   ) as { entries: Array<{ id: string }> }
   const zhIds = new Set(zhTranslations.entries.map((e) => e.id))
 
@@ -107,25 +129,35 @@ function auditDictionary(rootDir: string): DictionaryAudit {
     readText(rootDir, dictionaryTxtFile)
   )
 
+  const encoding = summarizeEncodings([
+    ...entryFiles.map((f) => readEncoding(rootDir, `${entriesDir}/${f}`)),
+    readEncoding(rootDir, zhTranslationsFile)
+  ])
+
   return {
     entriesDir,
     entryFileCount: entryFiles.length,
+    encoding,
     ...computeDictionaryEntryStats(entries, zhIds),
     zhTranslationCount: zhTranslations.entries.length,
-    dictionaryTxt: { file: dictionaryTxtFile, ...dictionaryTxtStats }
+    dictionaryTxt: {
+      file: dictionaryTxtFile,
+      encoding: readEncoding(rootDir, dictionaryTxtFile),
+      ...dictionaryTxtStats
+    }
   }
 }
 
 // TechMC Glossary.csv 稽核
 interface GlossaryAudit extends GlossaryStats {
   file: string
-  hasBom: boolean
+  encoding: SourceEncoding
 }
 
 function auditGlossary(rootDir: string): GlossaryAudit {
   const file = 'public/database/TechMC Glossary.csv'
   const rawBuffer = readFileSync(join(rootDir, file))
-  const hasBom = hasUtf8Bom(rawBuffer)
+  const encoding = detectEncoding(rawBuffer)
   const content = rawBuffer.toString('utf-8')
 
   const rows = parse(content, {
@@ -135,7 +167,7 @@ function auditGlossary(rootDir: string): GlossaryAudit {
   }) as Array<Record<string, string>>
   const header = rows.length > 0 ? Object.keys(rows[0]) : []
 
-  return { file, hasBom, ...computeGlossaryStats(rows, header) }
+  return { file, encoding, ...computeGlossaryStats(rows, header) }
 }
 
 // gtmc-database/ 稽核：檔案數、結構區塊、疑似 404/stub、與歷史 CSV 逐字重複、失效相對連結
@@ -144,6 +176,7 @@ interface GtmcAudit {
   fileCount: number
   headingBlockCount: number
   fileTypeBreakdown: Record<'normal' | 'stub' | 'not_found', number>
+  encodingBreakdown: Record<SourceEncoding, number>
   duplicateWithLegacyCsvCount: number
   brokenLinkCount: number
 }
@@ -174,16 +207,19 @@ function auditGtmc(rootDir: string, legacyCsvHashes: Set<string>): GtmcAudit {
     stub: 0,
     not_found: 0
   }
+  const encodingBreakdown: Record<SourceEncoding, number> = { 'utf-8': 0, 'utf-8-bom': 0 }
   let duplicateWithLegacyCsvCount = 0
   let brokenLinkCount = 0
 
   for (const filePath of files) {
-    const content = readFileSync(filePath, 'utf-8')
+    const rawBuffer = readFileSync(filePath)
+    const content = rawBuffer.toString('utf-8')
     const fileName = filePath.split(/[\\/]/).pop() || ''
     const classification = classifyGtmcFile(fileName, content)
 
     headingBlockCount += classification.headingCount
     fileTypeBreakdown[classification.fileType]++
+    encodingBreakdown[detectEncoding(rawBuffer)]++
     if (legacyCsvHashes.has(classification.contentHash)) {
       duplicateWithLegacyCsvCount++
     }
@@ -201,6 +237,7 @@ function auditGtmc(rootDir: string, legacyCsvHashes: Set<string>): GtmcAudit {
     fileCount: files.length,
     headingBlockCount,
     fileTypeBreakdown,
+    encodingBreakdown,
     duplicateWithLegacyCsvCount,
     brokenLinkCount
   }
@@ -224,7 +261,7 @@ export function buildReport(rootDir: string): AuditReport {
   return {
     sources: {
       openst_machine_submission: auditMachines(rootDir),
-      legacy_database_csv: auditLegacyCsv(legacyCsvRecords),
+      legacy_database_csv: auditLegacyCsv(rootDir, legacyCsvRecords),
       legacy_database_markdown: auditLegacyMarkdown(rootDir),
       storage_tech_dictionary: auditDictionary(rootDir),
       techmc_glossary: auditGlossary(rootDir),

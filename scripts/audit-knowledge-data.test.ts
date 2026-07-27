@@ -98,12 +98,13 @@ describe('buildReport', () => {
     assert.equal(report.sources.storage_tech_dictionary.missingZhTranslationCount, 1)
     assert.equal(report.sources.storage_tech_dictionary.dictionaryTxt.malformedLineCount, 1)
 
-    assert.equal(report.sources.techmc_glossary.hasBom, true)
+    assert.equal(report.sources.techmc_glossary.encoding, 'utf-8-bom')
     assert.equal(report.sources.techmc_glossary.rowCount, 2)
     assert.equal(report.sources.techmc_glossary.emptyShortFormCount, 1)
 
     assert.equal(report.sources.gtmc.fileCount, 3)
     assert.deepEqual(report.sources.gtmc.fileTypeBreakdown, { normal: 1, stub: 1, not_found: 1 })
+    assert.deepEqual(report.sources.gtmc.encodingBreakdown, { 'utf-8': 3, 'utf-8-bom': 0 })
     assert.equal(report.sources.gtmc.duplicateWithLegacyCsvCount, 0)
     assert.equal(report.sources.gtmc.brokenLinkCount, 1)
   })

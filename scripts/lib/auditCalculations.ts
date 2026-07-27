@@ -103,15 +103,43 @@ export function computeLegacyCsvContentHashes(records: LegacyCsvRecord[]): Set<s
 export interface LegacyMarkdownStats {
   lineCount: number
   headingCount: number
+  // 以 <!-- 学习于 ... --> 標記切出的學習紀錄數，比行數更接近「邏輯記錄數」
+  entryCount: number
+  // 標記內含「用户: 名稱」時，屬於原始社群識別資訊，不可進入一般回答或索引
+  entriesWithUserIdentifierCount: number
+  // 時間戳不是合法 ISO-8601（例如殘缺的 "2026-06-24T..."）視為異常
+  malformedTimestampCount: number
 }
+
+const LEGACY_MARKDOWN_ENTRY_MARKER = /<!--\s*学习于\s*(.*?)\s*-->/g
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 
 export function computeLegacyMarkdownStats(content: string): LegacyMarkdownStats {
   const lines = splitLines(content)
   const headingCount = lines.filter((line) => /^#{1,6}\s/.test(line)).length
 
+  let entryCount = 0
+  let entriesWithUserIdentifierCount = 0
+  let malformedTimestampCount = 0
+  let match: RegExpExecArray | null
+  const markerRegex = new RegExp(LEGACY_MARKDOWN_ENTRY_MARKER)
+  while ((match = markerRegex.exec(content)) !== null) {
+    entryCount++
+    const [timestampPart, userPart] = match[1].split('|').map((part) => part.trim())
+    if (userPart && userPart.length > 0) {
+      entriesWithUserIdentifierCount++
+    }
+    if (!ISO_TIMESTAMP_PATTERN.test(timestampPart)) {
+      malformedTimestampCount++
+    }
+  }
+
   return {
     lineCount: lines.length,
-    headingCount
+    headingCount,
+    entryCount,
+    entriesWithUserIdentifierCount,
+    malformedTimestampCount
   }
 }
 
@@ -208,6 +236,31 @@ export interface GlossaryStats {
   emptyShortFormCount: number
   emptyFullFormCount: number
   duplicateShortFormCount: number
+  knownDefects: KnownDefectStatus[]
+}
+
+// D1（KNOWLEDGE_SYSTEM_PLAN.md「已確認的現行缺陷」）：
+// src/services/data.ts 的 loadGlossary() 讀取 term/术语/definition/定义 欄位，
+// 但本 CSV 實際表頭沒有這些名稱，因此每一列都映射為空字串。
+// T0.3 的職責只是登記（可程式驗證）此缺陷是否仍存在，修正屬於 T2.7。
+export interface KnownDefectStatus {
+  id: string
+  description: string
+  active: boolean
+}
+
+function detectD1(header: string[]): KnownDefectStatus {
+  const termFieldMissing = !header.includes('term') && !header.includes('术语')
+  const definitionFieldMissing =
+    !header.includes('definition') && !header.includes('定义')
+
+  return {
+    id: 'D1',
+    description:
+      'src/services/data.ts 的 loadGlossary() 讀取 term/术语/definition/定义 欄位，' +
+      '但實際表頭無此名稱，全部列映射為空字串',
+    active: termFieldMissing && definitionFieldMissing
+  }
 }
 
 export function computeGlossaryStats(
@@ -244,13 +297,21 @@ export function computeGlossaryStats(
     rowCount: rows.length,
     emptyShortFormCount,
     emptyFullFormCount,
-    duplicateShortFormCount
+    duplicateShortFormCount,
+    knownDefects: [detectD1(header)]
   }
 }
 
-// 判斷 CSV 原始 buffer 開頭是否為 UTF-8 BOM
+// 判斷檔案原始 buffer 開頭是否為 UTF-8 BOM
 export function hasUtf8Bom(buffer: Buffer): boolean {
   return buffer.length >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf
+}
+
+// 本專案只處理 UTF-8（含／不含 BOM）；供每個來源登記實際編碼
+export type SourceEncoding = 'utf-8' | 'utf-8-bom'
+
+export function detectEncoding(buffer: Buffer): SourceEncoding {
+  return hasUtf8Bom(buffer) ? 'utf-8-bom' : 'utf-8'
 }
 
 // 抓取 Markdown 連結與圖片的相對路徑目標，只檢查非 http(s)、非錨點連結

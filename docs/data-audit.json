@@ -2,6 +2,7 @@
   "sources": {
     "openst_machine_submission": {
       "file": "public/database/database.json",
+      "encoding": "utf-8",
       "machineCount": 81,
       "uniqueSubIdCount": 81,
       "totalTagCount": 228,
@@ -9,6 +10,7 @@
     },
     "legacy_database_csv": {
       "file": "public/database/database.csv",
+      "encoding": "utf-8",
       "logicalRecordCount": 151,
       "emptyContentCount": 0,
       "duplicateContentHashCount": 1,
@@ -16,12 +18,17 @@
     },
     "legacy_database_markdown": {
       "file": "public/database/database.md",
+      "encoding": "utf-8",
       "lineCount": 215,
-      "headingCount": 12
+      "headingCount": 12,
+      "entryCount": 17,
+      "entriesWithUserIdentifierCount": 16,
+      "malformedTimestampCount": 1
     },
     "storage_tech_dictionary": {
       "entriesDir": "public/database/dictionary/entries",
       "entryFileCount": 112,
+      "encoding": "utf-8",
       "recordCount": 112,
       "emptyDefinitionCount": 0,
       "duplicateIdCount": 0,
@@ -33,18 +40,26 @@
       "zhTranslationCount": 112,
       "dictionaryTxt": {
         "file": "public/database/Dictionary.txt",
+        "encoding": "utf-8",
         "lineCount": 117,
         "malformedLineCount": 0
       }
     },
     "techmc_glossary": {
       "file": "public/database/TechMC Glossary.csv",
-      "hasBom": true,
+      "encoding": "utf-8-bom",
       "columnCount": 26,
       "rowCount": 415,
       "emptyShortFormCount": 327,
       "emptyFullFormCount": 1,
-      "duplicateShortFormCount": 2
+      "duplicateShortFormCount": 2,
+      "knownDefects": [
+        {
+          "id": "D1",
+          "description": "src/services/data.ts 的 loadGlossary() 讀取 term/术语/definition/定义 欄位，但實際表頭無此名稱，全部列映射為空字串",
+          "active": true
+        }
+      ]
     },
     "gtmc": {
       "dir": "public/database/gtmc-database",
@@ -54,6 +69,10 @@
         "normal": 19,
         "stub": 2,
         "not_found": 2
+      },
+      "encodingBreakdown": {
+        "utf-8": 23,
+        "utf-8-bom": 0
       },
       "duplicateWithLegacyCsvCount": 19,
       "brokenLinkCount": 6

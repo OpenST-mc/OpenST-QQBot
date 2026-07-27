@@ -13,6 +13,7 @@ import {
   computeDictionaryEntryStats,
   computeGlossaryStats,
   hasUtf8Bom,
+  detectEncoding,
   extractRelativeLinkTargets,
   classifyGtmcFile,
   diffValues
@@ -122,6 +123,22 @@ describe('computeLegacyMarkdownStats', () => {
     const stats = computeLegacyMarkdownStats('這是 # 註解文字\n')
     assert.equal(stats.headingCount, 0)
   })
+
+  it('依 <!-- 学习于 ... --> 標記計算學習紀錄數與含使用者識別的筆數', () => {
+    const content =
+      '<!-- 学习于 2026-06-24T11:06:57.253Z | 用户: Linvin -->\n內容一\n' +
+      '<!-- 学习于 2026-06-25T00:00:00.000Z -->\n內容二\n'
+    const stats = computeLegacyMarkdownStats(content)
+    assert.equal(stats.entryCount, 2)
+    assert.equal(stats.entriesWithUserIdentifierCount, 1)
+    assert.equal(stats.malformedTimestampCount, 0)
+  })
+
+  it('殘缺時間戳（例如 "..."）視為異常', () => {
+    const stats = computeLegacyMarkdownStats('<!-- 学习于 2026-06-24T... -->\n內容\n')
+    assert.equal(stats.entryCount, 1)
+    assert.equal(stats.malformedTimestampCount, 1)
+  })
 })
 
 describe('computeDictionaryTxtStats', () => {
@@ -181,6 +198,24 @@ describe('computeGlossaryStats', () => {
     assert.equal(stats.emptyFullFormCount, 1)
     assert.equal(stats.duplicateShortFormCount, 1)
   })
+
+  it('缺少 term/definition 欄位時判定 D1 缺陷仍存在', () => {
+    const stats = computeGlossaryStats(
+      [{ 'Short Form': 'BUD', 'Full Form (English)': 'Block Update Detector' }],
+      ['Short Form', 'Full Form (English)']
+    )
+    const d1 = stats.knownDefects.find((d) => d.id === 'D1')
+    assert.equal(d1?.active, true)
+  })
+
+  it('欄位改名為 term/definition 後判定 D1 缺陷已消失', () => {
+    const stats = computeGlossaryStats(
+      [{ 'Short Form': 'BUD', 'Full Form (English)': 'x', term: 'BUD', definition: 'x' }],
+      ['Short Form', 'Full Form (English)', 'term', 'definition']
+    )
+    const d1 = stats.knownDefects.find((d) => d.id === 'D1')
+    assert.equal(d1?.active, false)
+  })
 })
 
 describe('hasUtf8Bom', () => {
@@ -194,6 +229,16 @@ describe('hasUtf8Bom', () => {
 
   it('過短的 buffer 不誤判', () => {
     assert.equal(hasUtf8Bom(Buffer.from([0xef])), false)
+  })
+})
+
+describe('detectEncoding', () => {
+  it('有 BOM 回傳 utf-8-bom', () => {
+    assert.equal(detectEncoding(Buffer.from([0xef, 0xbb, 0xbf, 0x61])), 'utf-8-bom')
+  })
+
+  it('沒有 BOM 回傳 utf-8', () => {
+    assert.equal(detectEncoding(Buffer.from('abc', 'utf-8')), 'utf-8')
   })
 })
 
