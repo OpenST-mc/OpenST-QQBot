@@ -36,7 +36,8 @@ function parseCsvSet(envKey: string): Set<string> {
 // DeepSeek API 配置
 export const DEEPSEEK_API_KEY = process.env['DEEPSEEK_API_KEY'] || ''
 export const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1'
-export const DEEPSEEK_MODEL = 'deepseek-v4-pro'
+export const DEEPSEEK_MODEL_FLASH = 'deepseek-v4-flash'
+export const DEEPSEEK_MODEL_PRO = 'deepseek-v4-pro'
 
 // 上传服务配置
 // 令牌有效期 5 分钟；缩短是为了压缩令牌泄露后可被重放使用的时间窗口

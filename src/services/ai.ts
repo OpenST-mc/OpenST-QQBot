@@ -5,7 +5,8 @@ import axios from 'axios'
 import {
   DEEPSEEK_API_KEY,
   DEEPSEEK_BASE_URL,
-  DEEPSEEK_MODEL,
+  DEEPSEEK_MODEL_FLASH,
+  DEEPSEEK_MODEL_PRO,
   SHARE_BASE_URL
 } from '../config'
 import { ContextMessage } from './context'
@@ -19,6 +20,7 @@ export interface AiResponse {
 }
 
 // 消息格式（兼容 DeepSeek API）
+export type AiModel = 'flash' | 'pro'
 interface ApiMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
@@ -28,6 +30,7 @@ interface ApiMessage {
 export async function askAi(
   systemPrompt: string,
   userPrompt: string,
+  model: AiModel,
   history?: ContextMessage[]
 ): Promise<string> {
   const messages: ApiMessage[] = [{ role: 'system', content: systemPrompt }]
@@ -45,7 +48,7 @@ export async function askAi(
   const resp = await axios.post(
     `${DEEPSEEK_BASE_URL}/chat/completions`,
     {
-      model: DEEPSEEK_MODEL,
+      model: model === 'flash' ? DEEPSEEK_MODEL_FLASH : DEEPSEEK_MODEL_PRO,
       messages: messages,
       temperature: 0.3,
       max_tokens: 2000
@@ -125,7 +128,7 @@ ${machineDesc}
       `以下是与你问题匹配度最高的机器详细信息，请优先从中推荐:\n${candidateDesc}`
   }
 
-  const answer = await askAi(fullPrompt, enrichedUserPrompt, history)
+  const answer = await askAi(fullPrompt, enrichedUserPrompt, 'pro', history)
 
   // 验证 sub_id
   const validSubIds = new Set(allMachines.map((m) => m.subId))
