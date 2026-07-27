@@ -1,14 +1,48 @@
 // 投稿压缩包下载与解压
 // 下载 issue 中附带的投稿全量包，解压后返回内部文件列表
 import axios from 'axios'
-import JSZip from 'jszip'
+import yauzl, { Entry, ZipFile } from 'yauzl'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { assertSafeRelativePath, safeJoin } from './pathSafety'
+import { WORKER_URL } from '../config'
 
 // 最大下载大小 50MB
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+
+// 下载链接可信域名白名单（含子域名），防止 SSRF
+// 按设计，下载链接只会指向投稿中继服务 WORKER_URL，动态读取其域名，
+// 避免部署方更换中继域名（环境变量）后误挡合法链接
+function getTrustedDownloadHosts(): string[] {
+  const hosts: string[] = []
+  try {
+    hosts.push(new URL(WORKER_URL).hostname)
+  } catch {
+    // WORKER_URL 配置无效时忽略
+  }
+  return hosts
+}
+
+function isTrustedDownloadHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return getTrustedDownloadHosts().some((trusted) => {
+    const t = trusted.toLowerCase()
+    return host === t || host.endsWith(`.${t}`)
+  })
+}
+
+// 校验下载链接域名是否在白名单内，不通过则直接抛错，不发出任何请求
+function assertTrustedDownloadUrl(urlStr: string): void {
+  let hostname: string
+  try {
+    hostname = new URL(urlStr).hostname
+  } catch {
+    throw new Error(`下载链接格式无效: ${urlStr}`)
+  }
+  if (!isTrustedDownloadHost(hostname)) {
+    throw new Error(`下载链接域名不在信任列表内: ${hostname}`)
+  }
+}
 
 // 解压结果：文件路径 -> Buffer 的映射
 export interface ExtractedFiles {
@@ -35,9 +69,12 @@ export function extractDownloadUrl(body: string): string {
 // 去掉顶层文件夹，将其内部所有文件收集到扁平映射中
 // 例如 zip 内有 file_abc/machine.schem，则返回 { "machine.schem": Buffer }
 export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles> {
+  // 校验域名白名单，避免 SSRF（下载链接来自 issue body，可能被投稿者伪造）
+  assertTrustedDownloadUrl(zipUrl)
+
   // 先发 HEAD 请求检查文件大小
   try {
-    const headResp = await axios.head(zipUrl, { timeout: 15000 })
+    const headResp = await axios.head(zipUrl, { timeout: 15000, maxRedirects: 0 })
     const contentLength = parseInt(
       String(headResp.headers['content-length'] || '0'), 10
     )
@@ -56,7 +93,8 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
 
   const resp = await axios.get(zipUrl, {
     responseType: 'arraybuffer',
-    timeout: 120000
+    timeout: 120000,
+    maxRedirects: 0
   })
 
   // 对已下载的数据做二次大小校验
@@ -69,32 +107,122 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
 
   const buffer = Buffer.from(resp.data as ArrayBuffer)
 
-  const zip = await JSZip.loadAsync(buffer)
-  const result: ExtractedFiles = {}
-
-  // 收集所有文件路径
-  const fileEntries: Array<{ zipPath: string; entry: JSZip.JSZipObject }> = []
-  zip.forEach((relativePath, entry) => {
-    if (entry.dir) return
-    fileEntries.push({ zipPath: relativePath, entry })
+  const zip = await yauzl.fromBufferPromise(buffer, {
+    autoClose: false,
+    lazyEntries: true
   })
 
-  // 找到所有文件的公共前缀（顶层文件夹名）
-  const commonPrefix = findCommonPrefix(fileEntries.map((f) => f.zipPath))
+  try {
+    const entries = await readFileEntries(zip)
+    const commonPrefix = findCommonPrefix(entries.map((entry) => entry.fileName))
+    const result: ExtractedFiles = {}
+    let uncompressedBytes = 0
 
-  for (const { zipPath, entry } of fileEntries) {
-    const relPath = commonPrefix
-      ? zipPath.slice(commonPrefix.length).replace(/^[\\/]/, '')
-      : zipPath
+    for (const entry of entries) {
+      const relPath = commonPrefix
+        ? entry.fileName.slice(commonPrefix.length).replace(/^[\\/]/, '')
+        : entry.fileName
+      const data = await readEntry(zip, entry, (chunkLength) => {
+        uncompressedBytes += chunkLength
+        return uncompressedBytes <= MAX_UNCOMPRESSED_BYTES
+      })
+      result[relPath] = data
+    }
 
-    // 拒绝含目录穿越或绝对路径的 entry，整包拒绝而非跳过单个文件
-    assertSafeRelativePath(relPath)
-
-    const data = await entry.async('nodebuffer')
-    result[relPath] = data
+    return result
+  } finally {
+    closeZip(zip)
   }
+}
 
-  return result
+// 使用 lazy entries 先收集路径，以保留去掉公共顶层目录的行为
+function readFileEntries(zip: ZipFile): Promise<Entry[]> {
+  return new Promise((resolve, reject) => {
+    const entries: Entry[] = []
+    let settled = false
+
+    const fail = (error: Error): void => {
+      if (settled) return
+      settled = true
+      closeZip(zip)
+      reject(error)
+    }
+
+    zip.once('error', fail)
+    zip.on('entry', (entry: Entry) => {
+      if (!entry.fileName.endsWith('/')) {
+        entries.push(entry)
+        if (entries.length > MAX_FILE_COUNT) {
+          fail(new Error(`投稿包文件数量超过限制 ${MAX_FILE_COUNT}`))
+          return
+        }
+      }
+      zip.readEntry()
+    })
+    zip.once('end', () => {
+      if (settled) return
+      settled = true
+      resolve(entries)
+    })
+    zip.readEntry()
+  })
+}
+
+// 逐块读取条目，在追加到结果前检查单文件及全部文件的解压大小
+function readEntry(
+  zip: ZipFile,
+  entry: Entry,
+  addToTotal: (chunkLength: number) => boolean
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zip.openReadStream(entry, (openError, stream) => {
+      if (openError) {
+        closeZip(zip)
+        reject(openError)
+        return
+      }
+
+      const chunks: Buffer[] = []
+      let fileBytes = 0
+      let settled = false
+
+      const fail = (error: Error): void => {
+        if (settled) return
+        settled = true
+        stream.destroy()
+        closeZip(zip)
+        reject(error)
+      }
+
+      stream.on('data', (chunk: Buffer) => {
+        const nextFileBytes = fileBytes + chunk.length
+        if (nextFileBytes > MAX_UNCOMPRESSED_BYTES) {
+          fail(new Error(
+            `投稿包单个文件解压后大小超过限制 ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)}MB`
+          ))
+          return
+        }
+        if (!addToTotal(chunk.length)) {
+          fail(new Error(
+            `投稿包解压后总大小超过限制 ${MAX_UNCOMPRESSED_BYTES / (1024 * 1024)}MB`
+          ))
+          return
+        }
+        fileBytes = nextFileBytes
+        chunks.push(chunk)
+      })
+      stream.once('error', fail)
+      stream.once('end', () => {
+        if (settled) return
+        settled = true
+        resolve(Buffer.concat(chunks, fileBytes))
+      })
+    })
+  })
+}
+
+function closeZip(zip: ZipFile): void {
+  if (zip.isOpen) zip.close()
 }
 
 // 找出路径列表的公共前缀目录
