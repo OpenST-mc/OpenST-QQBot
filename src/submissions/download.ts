@@ -6,9 +6,16 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { WORKER_URL } from '../config'
+import { assertSafeRelativePath, safeJoin } from './pathSafety'
 
 // 最大下载大小 50MB
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+
+// 单个文件与解压后总大小均限制为 50MB，防止 zip bomb 耗尽内存
+const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+
+// 最多解压 1000 个非目录文件，限制大量小文件消耗资源
+const MAX_FILE_COUNT = 1000
 
 // 下载链接可信域名白名单（含子域名），防止 SSRF
 // 按设计，下载链接只会指向投稿中继服务 WORKER_URL，动态读取其域名，
@@ -122,6 +129,10 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
       const relPath = commonPrefix
         ? entry.fileName.slice(commonPrefix.length).replace(/^[\\/]/, '')
         : entry.fileName
+
+      // 拒绝含目录穿越或绝对路径的 entry，整包拒绝而非跳过单个文件
+      assertSafeRelativePath(relPath)
+
       const data = await readEntry(zip, entry, (chunkLength) => {
         uncompressedBytes += chunkLength
         return uncompressedBytes <= MAX_UNCOMPRESSED_BYTES
