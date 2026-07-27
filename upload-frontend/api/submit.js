@@ -1,6 +1,6 @@
 /**
  * Vercel Route API — 创建 GitHub Issue
- * POST /api/submit?t=<token>&g=<enc_gh>
+ * POST /api/submit?t=<token>
  * Body: { name, author, contact, desc, tags, downloadUrl, infoJson }
  *
  * 不处理文件上传，文件已由前端直接 POST 到 Worker
@@ -14,7 +14,12 @@ const crypto = require('crypto');
 const axios = require('axios');
 const { TRUSTED_DOWNLOAD_HOST } = require('./config');
 
-const TOKEN_TTL_MS = 30 * 60 * 1000;
+const TOKEN_TIMESTAMP_HEX_LEN = 11;
+const TOKEN_NONCE_HEX_LEN = 9;
+const TOKEN_HMAC_HEX_LEN = 16;
+const TOKEN_PAYLOAD_LEN = TOKEN_TIMESTAMP_HEX_LEN + TOKEN_NONCE_HEX_LEN;
+const TOKEN_TOTAL_LEN = TOKEN_PAYLOAD_LEN + TOKEN_HMAC_HEX_LEN;
+const TOKEN_TTL_MS = 5 * 60 * 1000;
 // downloadUrl 完全由前端提交、未经验证，写入 issue 前需校验来源域名，
 // 否则可被伪造成任意地址（含内网地址），造成审核端下载时的 SSRF 风险
 
@@ -27,10 +32,6 @@ function isTrustedDownloadUrl(urlStr) {
   } catch (e) {
     return false;
   }
-}
-
-function deriveKey(secret) {
-  return crypto.createHash('sha256').update(secret).digest();
 }
 
 function verifyToken(token, secret) {
@@ -50,37 +51,20 @@ function verifyToken(token, secret) {
   return providedHmac === expected;
 }
 
-function decryptGhToken(encrypted, secret) {
-  if (!encrypted) return '';
-  var buf = Buffer.from(encrypted, 'base64url');
-  var iv = buf.slice(0, 12);
-  var authTag = buf.slice(12, 28);
-  var ciphertext = buf.slice(28);
-  var key = deriveKey(secret);
-
-  var decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(authTag);
-  return Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final()
-  ]).toString('utf8');
-}
-
 async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   var secret = process.env.UPLOAD_SECRET || '';
   var accessToken = (req.query.t || '').toString();
-  var encGh = (req.query.g || '').toString();
 
   if (!verifyToken(accessToken, secret)) {
     return res.status(403).json({ error: '无效或已过期的令牌' });
   }
 
-  var ghToken = decryptGhToken(encGh, secret);
+  var ghToken = process.env['GITHUB_TOKEN'] || '';
   if (!ghToken) {
-    return res.status(400).json({ error: '无法解密 GitHub 令牌' });
+    return res.status(500).json({ error: 'GitHub 投稿凭证未配置' });
   }
 
   var body = req.body || {};

@@ -10,7 +10,6 @@ import crypto from 'crypto'
 import { v4 as uuidv4 } from 'uuid'
 
 const UPLOAD_SECRET = process.env['UPLOAD_SECRET'] || ''
-const GITHUB_TOKEN = process.env['GITHUB_TOKEN'] || ''
 
 // 令牌各段长度（十六进制字符数）
 const TOKEN_TIMESTAMP_HEX_LEN = 11
@@ -19,11 +18,6 @@ const TOKEN_NONCE_HEX_LEN = 9
 // （约 43 亿种组合）在没有速率限制的情况下存在被暴力枚举伪造的风险，
 // 64 bit 可将其提升到实务上不可行的量级
 const TOKEN_HMAC_HEX_LEN = 16
-
-// 从 UPLOAD_SECRET 派生 AES-256 密钥
-function deriveKey(): Buffer {
-  return crypto.createHash('sha256').update(UPLOAD_SECRET).digest()
-}
 
 // 生成访问令牌: timestamp + nonce + hmac
 export function generateToken(): string {
@@ -46,21 +40,4 @@ export function generateToken(): string {
     .digest('hex')
     .slice(0, TOKEN_HMAC_HEX_LEN)
   return payload + hmac
-}
-
-// AES-256-GCM 加密 GitHub token
-// 输出 base64url: iv(12B) + authTag(16B) + ciphertext
-export function encryptGhToken(): string {
-  if (!GITHUB_TOKEN || !UPLOAD_SECRET) return ''
-
-  const key = deriveKey()
-  const iv = crypto.randomBytes(12)
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
-  const encrypted = Buffer.concat([
-    cipher.update(GITHUB_TOKEN, 'utf8'),
-    cipher.final()
-  ])
-  const authTag = cipher.getAuthTag()
-
-  return Buffer.concat([iv, authTag, encrypted]).toString('base64url')
 }

@@ -61,6 +61,8 @@ QQ_LEARN_WHITELIST=用户openid1,群号1           # /learn 专用白名单
 # 上传
 UPLOAD_FRONTEND_URL=https://你的前端地址.vercel.app
 WORKER_URL=https://api.openstmc.com           # 上传中继 API（默认）
+UPLOAD_SECRET=                                # 与 Vercel 保持一致的 32 随机 bytes 密钥
+# Vercel 还需配置 GITHUB_TOKEN、UPLOAD_SECRET 和 WORKER_URL
 
 # 联网搜索（默认 DuckDuckGo，免费）
 SEARCH_ENABLED=true                           # 总开关
