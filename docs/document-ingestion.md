@@ -365,8 +365,12 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則�
 
 | 項目 | 現況 | 修正時機 |
 | --- | --- | --- |
-| `prompt_version` | 種子 Fixture 使用 `<task_type>@1` 佔位 | 計畫要求為 `system.md` + `schema.json` 的 SHA-256 前 12 碼；`agent/tasks/<task_type>/` 由 T2.4 建立後重錄 |
-| `rawAssetId` | 固定 `0` | 重播 runner 以實際 `raw_assets.id` 取代（見第 9 節） |
+| `prompt_version` | 種子 Fixture 用 `<task_type>@1` 佔位 | `agent/tasks/` 由 T2.4 建立後重錄 |
+| `rawAssetId` | 固定 `0` | 重播 runner 以實際 id 取代（第 9 節） |
+
+計畫要求 `prompt_version` 為 `system.md` 與 `schema.json` 的 SHA-256 前 12 碼。
+prompt 與 schema 檔案屬 T2.4 產出，本 Track 無法計算，故先以可辨識的佔位字串記錄，
+不偽造雜湊值。
 
 `document_quality` 的 `completedHeadings` 與 `excludedHeadings` 屬**建議值**。
 與第 5.3 節確定性規則衝突時，一律以確定性規則為準，並記錄兩者差異供審核者檢視；
