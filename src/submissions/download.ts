@@ -250,7 +250,7 @@ export async function extractToTemp(zipUrl: string): Promise<string> {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openst-submission-'))
 
   for (const [filePath, data] of Object.entries(files)) {
-    const fullPath = path.join(tmpDir, filePath)
+    const fullPath = safeJoin(tmpDir, filePath)
     const dir = path.dirname(fullPath)
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
