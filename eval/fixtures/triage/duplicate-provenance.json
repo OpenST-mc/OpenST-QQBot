@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "ingestionRulesVersion": "t0.5-1",
+  "notes": "canonical 選擇規則：相對路徑字典序最小者。relation 本期只允許 exact_duplicate。",
+  "pairs": [
+    {
+      "source_path": "gtmc-database/EntityMove/404.md",
+      "logical_record_no": null,
+      "canonical_source_path": "gtmc-database/EntityAI/404.md",
+      "duplicate_hash":
+        "fc270e12e56f1c5dc916cbdd1e57e0234e63545e34c7f529bfd4b20d0f791749",
+      "relation": "exact_duplicate"
+    },
+    {
+      "source_path": "gtmc-database/EntityMove/00-序.md",
+      "logical_record_no": null,
+      "canonical_source_path": "gtmc-database/EntityAI/00-序.md",
+      "duplicate_hash":
+        "eb667fbc3b527fe1c6a836ad884cb445ab783d6c7599a87f0b274ab39d2c2f0e",
+      "relation": "exact_duplicate"
+    }
+  ]
+}

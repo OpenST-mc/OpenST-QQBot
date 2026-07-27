@@ -1,0 +1,19 @@
+{
+  "task_type": "document_quality",
+  "model": "deepseek-v4-flash",
+  "prompt_version": "document_quality@1",
+  "input_hash": "655d46684cd48c7f1deca10f3acc9985056214bcd6d06d0363bf9f6e6cd18f52",
+  "source_path": "gtmc-database/BlockUpdate/README.md",
+  "approved_by": "woodengrass",
+  "approved_at": "2026-07-28T00:00:00.000Z",
+  "response": {
+    "candidate_type": "discard",
+    "normalized_title": "更新行为章节目录",
+    "normalized_content": "",
+    "term_refs": ["NC更新", "PP更新", "深度优先搜索", "更新链"],
+    "source_raw_asset_id": 0,
+    "quality_flags": ["navigation", "broken_link"],
+    "confidence": 0.93,
+    "rationale": "文件由一段章节引言与一份章节目录组成，引言未给出任何可验证内容，目录条目指向同目录其他文件。目录中的 ./00-导论.md 在来源目录中不存在。文中提及的术语值得保留为术语线索，但文件本身不应建立可引用段落。"
+  }
+}

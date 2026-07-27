@@ -1,0 +1,25 @@
+{
+  "task_type": "conflict_review",
+  "model": "deepseek-v4-pro",
+  "prompt_version": "conflict_review@1",
+  "input_hash": "2dff27d9210db60d08896eb81d7bfd4fe0e39e2ec4ffd72780f94b9ec9118718",
+  "source_path": "community-note-hopper.txt",
+  "compared_with": ["wiki-export-hopper.html"],
+  "approved_by": "woodengrass",
+  "approved_at": "2026-07-28T00:00:00.000Z",
+  "response": {
+    "candidate_type": "needs_review",
+    "normalized_title": "漏斗传输冷却时长的冲突：7gt 与 8gt",
+    "normalized_content": "两份来源对漏斗成功传输后的冷却时长给出不同数值。来源 A（社群笔记，纯文本，未标注版本与运行环境）主张固定 7gt 且适用所有版本。来源 B（wiki 导出，明确限定 Java 版 1.21 原版）记载 8gt，并附有对应代码片段。两者的差异无法只凭文本判定：来源 A 未提供版本、环境与测量方法，其「所有版本一致」的表述本身超出其证据范围。在取得可重现实测或原始码依据之前，不得择一作为已验证事实。",
+    "term_refs": ["漏斗", "传输冷却", "gt"],
+    "source_raw_asset_id": 0,
+    "quality_flags": ["conflicting_fact"],
+    "confidence": 0.45,
+    "rationale": "冲突为数值冲突而非表述差异，且其中一方缺少版本与环境条件，无法以版本范围拆解为两条互不冲突的 Claim。依 T0.5 规则输出 needs_review 候选，等待人工审核或实验数据，不得 materialize 为 pending。",
+    "reviewer_questions": [
+      "社群笔记对应的是哪个版本与运行环境（原版／Fabric／Paper）？",
+      "7gt 的说法是来自实测、原始码，还是转述？",
+      "是否存在特定时序条件下确实观测到 7gt 的情形？"
+    ]
+  }
+}
