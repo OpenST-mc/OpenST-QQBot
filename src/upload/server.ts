@@ -36,7 +36,8 @@ export function generateToken(): string {
   const payload = timestamp + nonce
 
   if (!UPLOAD_SECRET) {
-    throw new Error('UPLOAD_SECRET 未設定，無法生成安全的上傳令牌')
+    // 未配置密钥时直接抛错，避免签发一个尾数固定、验证形同虚设的令牌
+    throw new Error('UPLOAD_SECRET 未配置，无法生成安全的上传令牌')
   }
 
   const hmac = crypto

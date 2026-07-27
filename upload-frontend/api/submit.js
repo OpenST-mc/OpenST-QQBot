@@ -12,13 +12,22 @@
  */
 const crypto = require('crypto');
 const axios = require('axios');
+const { TRUSTED_DOWNLOAD_HOST } = require('./config');
 
-const TOKEN_TIMESTAMP_HEX_LEN = 11;
-const TOKEN_NONCE_HEX_LEN = 9;
-const TOKEN_HMAC_HEX_LEN = 16;
-const TOKEN_PAYLOAD_LEN = TOKEN_TIMESTAMP_HEX_LEN + TOKEN_NONCE_HEX_LEN;
-const TOKEN_TOTAL_LEN = TOKEN_PAYLOAD_LEN + TOKEN_HMAC_HEX_LEN;
-const TOKEN_TTL_MS = 5 * 60 * 1000;
+const TOKEN_TTL_MS = 30 * 60 * 1000;
+// downloadUrl 完全由前端提交、未经验证，写入 issue 前需校验来源域名，
+// 否则可被伪造成任意地址（含内网地址），造成审核端下载时的 SSRF 风险
+
+function isTrustedDownloadUrl(urlStr) {
+  if (!urlStr) return true;
+  try {
+    var host = new URL(urlStr).hostname.toLowerCase();
+    var trusted = TRUSTED_DOWNLOAD_HOST.toLowerCase();
+    return host === trusted || host.endsWith('.' + trusted);
+  } catch (e) {
+    return false;
+  }
+}
 
 function deriveKey(secret) {
   return crypto.createHash('sha256').update(secret).digest();
@@ -85,6 +94,10 @@ async function handler(req, res) {
 
   if (!name || !author) {
     return res.status(400).json({ error: '缺少必填字段' });
+  }
+
+  if (!isTrustedDownloadUrl(downloadUrl)) {
+    return res.status(400).json({ error: '下载链接域名不受信任' });
   }
 
   try {
