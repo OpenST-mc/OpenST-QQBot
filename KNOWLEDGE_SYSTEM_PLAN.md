@@ -458,6 +458,7 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 | 啟動匯入 | migration 後掃描 Raw 目錄與機器 JSON | Raw 以 manifest 比對未匯入或雜湊已改變檔案並自動增量匯入；`database.json` 雜湊變更時直接同步 machines，不經 AI |
 | AI API | Flash／Pro 共用現有 API，均支援 JSON | 僅 API Key 讀環境變數；模型 ID 以集中常數 `DEEPSEEK_MODEL_FLASH`、`DEEPSEEK_MODEL_PRO` 定義；不納入費率與配額處理 |
 | 來源網站 | Bot 輸出固定來源 URL；網站可為靜態網站 | 對外來源 ID 採 `SRC-00000001` 全域流水號，每個可引用 Chunk 一個 ID；首次建立後永不改變或重用；橋接層可另行匯出公開投影，Raw 區不可公開 |
+| 網站來源對照 | Bot 只維護本地來源與 ID 對照表 | 產生不含 Raw 正文與 QQ 資訊的 `source-id-map.json`；網站完全獨立，可自行抓取完整來源後按 `SRC-*` 對應 |
 | 歷史 CSV／Markdown 與社群內容 | Raw 僅內部保存；整理核准後公開 | 每個整理後可引用 Chunk 保留 `SRC-*`；公開網站只輸出核准後的整理內容與匿名「社群整理」署名，不輸出 Raw、QQ ID 或群組 ID |
 | 社群整理公開條款 | OpenST 自訂內容條款 | 公開投影須連至條款 URL；條款內容與 URL 提供前，不發布新社群整理來源頁 |
 | 回覆判定 | 正確、錯誤、部分正確、修改建議 | 部分正確須拆分知識點逐項判定；修改建議建立待審修訂候選 |
@@ -533,14 +534,57 @@ expected_answer_properties, expected_uncertainty, status
 2. 空內容、404、純導航、僅目錄、僅標題、失效連結先建立品質旗標。
 3. 檔案雜湊精確重複時，保留 Raw，但只選一個 canonical source；CSV 中 19 份 GTMC 副本只能建立 provenance。
 4. 已知術語的大小寫、空白與括號格式只可正規化為比對鍵，不可改寫 Raw 原文。
+5. 部分完成文件只保留已完成段落；標示「暫未完成」的段落建立 `stub` 旗標且不切入索引。
+6. 文字正文完整但圖片或相對連結失效時，保留正文與 Chunk，建立 `broken_link` 旗標；不刪除原始連結語法。
 
 **Flash 的 `csv_triage` 結構化輸出**：每個非重複 CSV 邏輯記錄輸出 `candidate_type`（`term`, `community_note`, `claim`, `discard`, `needs_review`）、正規化標題與正文、引用的 Raw ID、相關 term 候選、品質旗標、理由與信心值。輸出必須通過 JSON schema；無法判斷或含衝突事實時輸出 `needs_review`，不得猜測。
 
 **Pro 的介入條件**：只有 `conflicting_fact`、`mixed_concepts`、跨多個 GTMC／詞典來源或 Flash 無法分類的項目，才使用 Pro 產生比較報告與 Candidate Claim。Pro 輸出仍只是 `extraction_candidate`。
 
-**materialize 規則**：候選具有有效 Raw 回鏈、合法 JSON、非空正文且未帶阻擋品質旗標時，自動建立 `pending` 項目。`discard`、`not_found`、`navigation`、`stub`、`duplicate_exact` 不 materialize。`possible_typo`、`mixed_concepts`、`conflicting_fact` 只能 materialize 為 `needs_review` 型候選，不可進 Answer Index。
+**materialize 規則**：候選具有有效 Raw 回鏈、合法 JSON、非空正文且未帶阻擋品質旗標時，自動建立 `pending` 項目。`discard`、`not_found`、`navigation`、`stub`、`duplicate_exact` 不 materialize。`possible_typo`、`mixed_concepts`、`conflicting_fact` 只建立 `needs_review` 型候選，不可 materialize 為 pending 或進 Answer Index。
 
 **驗收**：清理作業必須輸出每個 Raw ID 的唯一結果：`provenance_only`、`candidate`、`pending` 或 `excluded`，並可由報告追溯原因、規則版本與 AI run ID。
+
+**AI 驗收策略**：採「錄製 AI JSON Fixture + 規則層自動測試」。即時 Flash／Pro 只對新 Raw 資料產生候選；已確認的 CSV、GTMC、`/learn` 範例將其結構化輸出保存為 Fixture。回歸測試不呼叫即時模型，而是重播 Fixture，驗證 JSON schema、Raw 回鏈、品質旗標、materialize、去重、審核狀態與 Answer Index 隔離。規則層測試另需驗證：即使收到未知或不合法 AI JSON，也不能讓資料跳過 pending 直接進 `approved`。
+
+**Fixture 檔案**：
+
+```text
+eval/fixtures/triage/
+  csv-expected.json
+  gtmc-expected.json
+  duplicate-provenance.json
+  ai-responses/
+    csv-triage/<raw-content-hash>.json
+    gtmc-quality/<raw-content-hash>.json
+    conflict-review/<raw-content-hash>.json
+```
+
+`csv-expected.json` 的每筆資料固定包含：
+
+```text
+logical_record_no, topic, raw_content_hash, expected_outcome,
+expected_candidate_type, required_flags, forbidden_flags,
+canonical_source_path, expected_term_aliases, notes
+```
+
+`gtmc-expected.json` 的每筆資料固定包含：
+
+```text
+source_path, raw_content_hash, document_outcome,
+expected_completed_headings, excluded_headings,
+required_flags, broken_links, public_visibility, notes
+```
+
+`duplicate-provenance.json` 固定列出 CSV 邏輯記錄與 canonical GTMC 檔案的對應：
+
+```text
+csv_logical_record_no, canonical_source_path, duplicate_hash, relation
+```
+
+其中 `relation` 在本期只允許 `exact_duplicate`。Fixture 必須涵蓋全部 151 筆 CSV 邏輯記錄與全部 23 份 GTMC Markdown；任何未列入 Fixture 的輸入都使稽核失敗。新增或變更來源時，必須先更新 Fixture 並經知識審核者核准。
+
+AI 回覆 Fixture 的檔名使用輸入 Raw 內容的 SHA-256，不使用模型生成的標題。每份 Fixture 必須包含 `task_type`、`model`、`prompt_version`、`input_hash`、`response`、`approved_by`、`approved_at`。模型升級或 prompt 變更時，舊 Fixture 不覆蓋；以新版本檔案並列保存，並由評測題庫明確指定採用哪個版本。
 
 ---
 
@@ -627,7 +671,7 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T2.4 | `gtmc-database/` 23 檔分流匯入：先建 raw snapshot，再依 T0.5 排除 404、空白、導航、僅提綱與失效連結文件；合格文件才建立 `documents` + `document_chunks`，並以 AI 產生內容品質、版本與 Claim 候選 | T1.2, T2.1, T2.3, T0.5 | 匯入器、AI 任務與品質報告 | 23 檔全數有 raw snapshot、確定性分類與 AI 候選；合格 chunk 可回溯檔案與標題路徑；不合格內容不進 Answer Index |
+| T2.4 | `gtmc-database/` 23 檔分流匯入：先建 raw snapshot，再依 T0.5 排除 404、空白、導航、僅提綱；部分完成文件只保留完成段落，失效資源只標記；合格內容才建立 `documents` + `document_chunks`，並以 AI 產生內容品質、版本與 Claim 候選 | T1.2, T2.1, T2.3, T0.5 | 匯入器、AI 任務與品質報告 | 23 檔全數有 raw snapshot、確定性分類與 AI 候選；完成 chunk 可回溯檔案與標題路徑；`stub` 不進索引，`broken_link` 正文保留並帶旗標 |
 | T2.5 | `dictionary/` 匯入：`entries/*.json` 的 `definition`、來源 URL、審核狀態與引用關係；`config.json` 的 `summary`；`zh-translations.json` 的中文翻譯 | T2.2 | 匯入器 | 112 詞條全數匯入；英文原始定義、中文定義與來源連結皆可追溯；僅既有 `APPROVED` 詞條標為 `approved` |
 | T2.6 | 術語清理候選：`Dictionary.txt` 可直接作翻譯候選；CSV 中短術語必須先經 AI 正規化為 `extraction_candidates`，辨識拼寫錯誤、同義詞、雙向別名及多概念混合記錄 | T1.2, T2.2, T0.5 | 匯入器與候選清單 | 不覆蓋 T2.5 正式翻譯；CSV 不直接寫入術語表；`Flitered`、`Paraller Codes`、`Singal Strength` 等只作待審更正候選；多概念記錄不作單一術語入庫 |
 | T2.7 | `TechMC Glossary.csv` 欄位重新映射與匯入（修正缺陷 D1） | T2.2 | 匯入器 | 415 列正確映射至 `Short Form` / `Full Form (English)` / `Chinese` / `Description (Chinese)` 等欄；處理 BOM；非空條目數 > 0 且與人工抽樣一致；授權待確認前強制 `visibility=internal` |
@@ -731,7 +775,7 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T5.4 | 衝突與不確定性處理 | T5.1, T5.2 | 規則實作 | 兩份資料衝突時可指出版本與條件 |
-| T5.3a | 來源目錄網站介面：由已核准且 `visibility=public` 的 `source_references` 匯出來源 ID、作品／文章名稱、作者或署名、原始 URL、授權與修改標記；Bot 以固定 URL 連至來源 ID | T1.2, T5.3 | 來源目錄公開投影契約與 website／橋接整合 | 每個可引用 Chunk 有永久、不重用的 `SRC-00000001`；Bot 中的來源 ID 可點至網站對應來源／段落；歷史 CSV 與社群內容僅在 OpenST 公開條款 URL 已設定後輸出整理內容和匿名來源；Raw 區、機器投稿與授權待確認 Glossary 永不輸出 |
+| T5.3a | 來源 ID 對照表：由 `source_references` 產生本機 `source-id-map.json`，記錄 `SRC-*`、來源種類、原始路徑／URL、文件標題、段落路徑、內容雜湊與 visibility；Bot 以固定 URL 連至來源 ID | T1.2, T5.3 | 本地對照表 schema 與匯出器 | 每個可引用 Chunk 有永久、不重用的 `SRC-00000001`；對照表不含 Raw 正文、QQ ID、群組 ID 或附件內容；網站完全獨立，可自行抓取完整來源並按 ID 對應；歷史 CSV 與社群內容僅在 OpenST 公開條款 URL 已設定後輸出整理內容和匿名來源 |
 | T5.5 | 錯誤回報入口接回待審區 | T5.3, T3.9 | 使用者入口 | 回報產生新待審項目，不覆蓋原知識 |
 
 ### 關卡 G5
