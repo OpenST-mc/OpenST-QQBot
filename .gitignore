@@ -12,5 +12,6 @@ yarn-error.log*
 .env
 /dist/
 /dist-scripts/
+/dist-tests/
 /.idea/
 public/database/submissions.json

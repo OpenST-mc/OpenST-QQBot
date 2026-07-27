@@ -41,6 +41,7 @@ export const CANDIDATE_STATUSES = [
 export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number]
 
 // 质量旗标
+// unsupported_format 与 parse_error 来自 docs/document-ingestion.md 第 11 节
 export const QUALITY_FLAGS = [
   'empty',
   'stub',
@@ -52,22 +53,40 @@ export const QUALITY_FLAGS = [
   'mixed_concepts',
   'possible_typo',
   'conflicting_fact',
-  'license_unknown'
+  'license_unknown',
+  'unsupported_format',
+  'parse_error'
 ] as const
 export type QualityFlag = (typeof QUALITY_FLAGS)[number]
 
-// 阻挡 materialize 的质量旗标
-// 命中任一项的候选只能停留在候选区，不得自动建立 pending 项目
+// 阻挡旗标：内容本身不可用，结果为 excluded 或 provenance_only
+// 见 docs/document-ingestion.md 第 8 节
 export const BLOCKING_QUALITY_FLAGS: readonly QualityFlag[] = [
   'empty',
   'stub',
   'navigation',
   'not_found',
   'duplicate_exact',
-  'mixed_concepts',
+  'unsupported_format',
+  'parse_error'
+]
+
+// 只建立 needs_review 候选、永不 materialize 的旗标
+// 内容有价值但语意需人工厘清，与阻挡旗标的处理结果不同
+export const NEEDS_REVIEW_QUALITY_FLAGS: readonly QualityFlag[] = [
   'possible_typo',
+  'mixed_concepts',
   'conflicting_fact'
 ]
+
+// 是否阻止候选自动 materialize 为 pending 项目
+// 两类旗标都不得 materialize，但只有阻挡旗标会让内容完全不进入候选区
+export function blocksMaterialize(flag: QualityFlag): boolean {
+  return (
+    BLOCKING_QUALITY_FLAGS.includes(flag) ||
+    NEEDS_REVIEW_QUALITY_FLAGS.includes(flag)
+  )
+}
 
 // AI 任务类型
 export const AI_TASK_TYPES = [
