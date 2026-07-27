@@ -5,15 +5,44 @@ import yauzl, { Entry, ZipFile } from 'yauzl'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { WORKER_URL } from '../config'
 
 // 最大下载大小 50MB
 const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 
-// 单个文件与解压后总大小均限制为 50MB，防止 zip bomb 耗尽内存
-const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+// 下载链接可信域名白名单（含子域名），防止 SSRF
+// 按设计，下载链接只会指向投稿中继服务 WORKER_URL，动态读取其域名，
+// 避免部署方更换中继域名（环境变量）后误挡合法链接
+function getTrustedDownloadHosts(): string[] {
+  const hosts: string[] = []
+  try {
+    hosts.push(new URL(WORKER_URL).hostname)
+  } catch {
+    // WORKER_URL 配置无效时忽略
+  }
+  return hosts
+}
 
-// 最多解压 1000 个非目录文件，限制大量小文件消耗资源
-const MAX_FILE_COUNT = 1000
+function isTrustedDownloadHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return getTrustedDownloadHosts().some((trusted) => {
+    const t = trusted.toLowerCase()
+    return host === t || host.endsWith(`.${t}`)
+  })
+}
+
+// 校验下载链接域名是否在白名单内，不通过则直接抛错，不发出任何请求
+function assertTrustedDownloadUrl(urlStr: string): void {
+  let hostname: string
+  try {
+    hostname = new URL(urlStr).hostname
+  } catch {
+    throw new Error(`下载链接格式无效: ${urlStr}`)
+  }
+  if (!isTrustedDownloadHost(hostname)) {
+    throw new Error(`下载链接域名不在信任列表内: ${hostname}`)
+  }
+}
 
 // 解压结果：文件路径 -> Buffer 的映射
 export interface ExtractedFiles {
@@ -40,9 +69,12 @@ export function extractDownloadUrl(body: string): string {
 // 去掉顶层文件夹，将其内部所有文件收集到扁平映射中
 // 例如 zip 内有 file_abc/machine.schem，则返回 { "machine.schem": Buffer }
 export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles> {
+  // 校验域名白名单，避免 SSRF（下载链接来自 issue body，可能被投稿者伪造）
+  assertTrustedDownloadUrl(zipUrl)
+
   // 先发 HEAD 请求检查文件大小
   try {
-    const headResp = await axios.head(zipUrl, { timeout: 15000 })
+    const headResp = await axios.head(zipUrl, { timeout: 15000, maxRedirects: 0 })
     const contentLength = parseInt(
       String(headResp.headers['content-length'] || '0'), 10
     )
@@ -61,7 +93,8 @@ export async function downloadAndExtract(zipUrl: string): Promise<ExtractedFiles
 
   const resp = await axios.get(zipUrl, {
     responseType: 'arraybuffer',
-    timeout: 120000
+    timeout: 120000,
+    maxRedirects: 0
   })
 
   // 对已下载的数据做二次大小校验

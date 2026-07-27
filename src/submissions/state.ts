@@ -11,6 +11,8 @@ export interface IssueState {
   body: string
   notifyMessageId: string
   claimedBy: string
+  // 是否正在处理通过/拒稿流程，防止按钮/文本回退重复触发并发操作
+  processing?: boolean
 }
 
 // 持久化数据结构
@@ -33,9 +35,20 @@ export function loadState(): void {
 
       seenSet = new Set(data.seen || [])
       issueMap = new Map()
+      let clearedProcessingLock = false
 
       for (const [key, value] of Object.entries(data.issues || {})) {
-        issueMap.set(Number(key), value as IssueState)
+        const issue = value as IssueState
+        if (issue.processing) {
+          // 处理锁仅用于当前进程防止重复操作，重启后必须允许恢复处理
+          issue.processing = false
+          clearedProcessingLock = true
+        }
+        issueMap.set(Number(key), issue)
+      }
+
+      if (clearedProcessingLock) {
+        saveState()
       }
 
       console.log(

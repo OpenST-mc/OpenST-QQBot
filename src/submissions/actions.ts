@@ -114,10 +114,25 @@ export async function approveIssue(
     return
   }
 
+  // 防止按钮连点或文本回退重试触发并发处理
+  if (state.processing) {
+    await sendMessage({
+      content: `稿件 #${issueNumber} 正在处理中，请稍候。`,
+      sourceType: 'group',
+      groupOpenid: ctx.groupOpenid
+    })
+    return
+  }
+
+  state.processing = true
+  setIssueState(state)
+
   try {
     // 提取下载链接
     const downloadUrl = extractDownloadUrl(state.body)
     if (!downloadUrl) {
+      state.processing = false
+      setIssueState(state)
       await sendMessage({
         content: `稿件 #${issueNumber} 中未找到下载链接，请检查 issue 内容。`,
         sourceType: 'group',
@@ -162,6 +177,8 @@ export async function approveIssue(
 
     // 至少有一个文件上传成功才关闭 issue，全部失败则报错
     if (uploadedCount === 0) {
+      state.processing = false
+      setIssueState(state)
       await sendMessage({
         content:
           `稿件 #${issueNumber} 处理失败：所有文件上传均未成功，` +
@@ -192,6 +209,9 @@ export async function approveIssue(
       `上传 ${uploadedCount} 个文件`
     )
   } catch (err) {
+    state.processing = false
+    setIssueState(state)
+
     const error = err as Error
     console.error(
       `[Submissions] 稿件 #${issueNumber} 处理失败:`,
@@ -233,6 +253,19 @@ export async function rejectIssue(
     return
   }
 
+  // 防止按钮连点或文本回退重试触发并发处理
+  if (state.processing) {
+    await sendMessage({
+      content: `稿件 #${issueNumber} 正在处理中，请稍候。`,
+      sourceType: 'group',
+      groupOpenid: ctx.groupOpenid
+    })
+    return
+  }
+
+  state.processing = true
+  setIssueState(state)
+
   try {
     await closeIssueAsNotPlanned(issueNumber)
 
@@ -251,6 +284,9 @@ export async function rejectIssue(
       `[Submissions] 稿件 #${issueNumber} 被 ${ctx.userOpenid} 拒稿`
     )
   } catch (err) {
+    state.processing = false
+    setIssueState(state)
+
     const error = err as Error
     console.error(
       `[Submissions] 稿件 #${issueNumber} 拒稿失败:`,
