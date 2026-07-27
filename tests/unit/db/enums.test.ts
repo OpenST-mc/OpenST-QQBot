@@ -6,6 +6,7 @@ import {
   EnumValueError,
   assertReviewStatus,
   blocksMaterialize,
+  candidateTypeBlocksMaterialize,
   canTransitionReviewStatus,
   isReviewStatus
 } from '../../../src/db/enums'
@@ -31,5 +32,12 @@ test('被拒和废弃内容不能直接恢复', () => {
 test('不可用或待确认质量旗标不会 materialize', () => {
   assert.equal(blocksMaterialize('empty'), true)
   assert.equal(blocksMaterialize('conflicting_fact'), true)
+  assert.equal(blocksMaterialize('invalid_ai_output'), true)
   assert.equal(blocksMaterialize('broken_link'), false)
+})
+
+test('discard 与 needs_review 候选不会 materialize', () => {
+  assert.equal(candidateTypeBlocksMaterialize('discard'), true)
+  assert.equal(candidateTypeBlocksMaterialize('needs_review'), true)
+  assert.equal(candidateTypeBlocksMaterialize('term'), false)
 })
