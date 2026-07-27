@@ -1,0 +1,251 @@
+// scripts/lib/auditCalculations.ts 的單元測試
+// 只驗證純運算函式的輸入輸出關係，不接觸檔案系統
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  sha256,
+  splitLines,
+  computeMachineStats,
+  computeLegacyCsvStats,
+  computeLegacyCsvContentHashes,
+  computeLegacyMarkdownStats,
+  computeDictionaryTxtStats,
+  computeDictionaryEntryStats,
+  computeGlossaryStats,
+  hasUtf8Bom,
+  extractRelativeLinkTargets,
+  classifyGtmcFile,
+  diffValues
+} from './auditCalculations'
+
+describe('sha256', () => {
+  it('相同內容產生相同雜湊', () => {
+    assert.equal(sha256('hello'), sha256('hello'))
+  })
+
+  it('不同內容產生不同雜湊', () => {
+    assert.notEqual(sha256('hello'), sha256('world'))
+  })
+})
+
+describe('splitLines', () => {
+  it('結尾有換行時不把結尾空字串算成一行', () => {
+    assert.deepEqual(splitLines('a\nb\nc\n'), ['a', 'b', 'c'])
+  })
+
+  it('結尾沒有換行時保留最後一行', () => {
+    assert.deepEqual(splitLines('a\nb\nc'), ['a', 'b', 'c'])
+  })
+
+  it('空字串視為 0 行（符合 wc -l 慣例）', () => {
+    assert.deepEqual(splitLines(''), [])
+  })
+})
+
+describe('computeMachineStats', () => {
+  it('正常清單回傳正確統計', () => {
+    const stats = computeMachineStats([
+      { id: '1', name: 'A', author: 'x', tags: ['t1', 't2'], description: 'd', sub_id: 'sub-1' },
+      { id: '2', name: 'B', author: 'y', tags: ['t1'], description: '', sub_id: 'sub-2' }
+    ])
+    assert.equal(stats.machineCount, 2)
+    assert.equal(stats.uniqueSubIdCount, 2)
+    assert.equal(stats.totalTagCount, 3)
+    assert.equal(stats.emptyDescriptionCount, 1)
+  })
+
+  it('重複 sub_id 使唯一數小於總數', () => {
+    const stats = computeMachineStats([
+      { id: '1', name: 'A', author: 'x', tags: [], description: 'd', sub_id: 'sub-1' },
+      { id: '2', name: 'B', author: 'y', tags: [], description: 'd', sub_id: 'sub-1' }
+    ])
+    assert.equal(stats.machineCount, 2)
+    assert.equal(stats.uniqueSubIdCount, 1)
+  })
+
+  it('缺少 tags 欄位不拋出錯誤', () => {
+    const stats = computeMachineStats([
+      {
+        id: '1',
+        name: 'A',
+        author: 'x',
+        tags: undefined as unknown as string[],
+        description: 'd',
+        sub_id: 'sub-1'
+      }
+    ])
+    assert.equal(stats.totalTagCount, 0)
+  })
+})
+
+describe('computeLegacyCsvStats', () => {
+  it('偵測空內容、多行內容與重複雜湊', () => {
+    const stats = computeLegacyCsvStats([
+      { topic: 'A', content: '同一內容' },
+      { topic: 'A', content: '同一內容' },
+      { topic: 'B', content: '' },
+      { topic: 'C', content: '第一行\n第二行' }
+    ])
+    assert.equal(stats.logicalRecordCount, 4)
+    assert.equal(stats.emptyContentCount, 1)
+    assert.equal(stats.multilineRecordCount, 1)
+    assert.equal(stats.duplicateContentHashCount, 1)
+  })
+
+  it('沒有重複內容時重複數為 0', () => {
+    const stats = computeLegacyCsvStats([
+      { topic: 'A', content: '內容一' },
+      { topic: 'B', content: '內容二' }
+    ])
+    assert.equal(stats.duplicateContentHashCount, 0)
+  })
+})
+
+describe('computeLegacyCsvContentHashes', () => {
+  it('只以去除頭尾空白後的 content 雜湊，不含 topic', () => {
+    const hashes = computeLegacyCsvContentHashes([
+      { topic: 'A', content: '文字' },
+      { topic: 'B', content: '  文字  ' }
+    ])
+    assert.equal(hashes.size, 1)
+  })
+})
+
+describe('computeLegacyMarkdownStats', () => {
+  it('計算行數與 1~6 級標題數', () => {
+    const stats = computeLegacyMarkdownStats('# 一級\n內容\n## 二級\n###### 六級\n')
+    assert.equal(stats.lineCount, 4)
+    assert.equal(stats.headingCount, 3)
+  })
+
+  it('非行首的井字號不算標題', () => {
+    const stats = computeLegacyMarkdownStats('這是 # 註解文字\n')
+    assert.equal(stats.headingCount, 0)
+  })
+})
+
+describe('computeDictionaryTxtStats', () => {
+  it('偵測不含分隔符的異常行', () => {
+    const stats = computeDictionaryTxtStats('Term-翻譯\n沒有分隔符的行\n\nAnother-另一個\n')
+    assert.equal(stats.malformedLineCount, 1)
+  })
+
+  it('空白行不計入異常', () => {
+    const stats = computeDictionaryTxtStats('Term-翻譯\n\n\n')
+    assert.equal(stats.malformedLineCount, 0)
+  })
+})
+
+describe('computeDictionaryEntryStats', () => {
+  it('偵測重複 id、術語重疊、狀態分布與缺失中文翻譯', () => {
+    const stats = computeDictionaryEntryStats(
+      [
+        { id: '1', terms: ['BUD', 'Block Update Detector'], definition: '定義', status: 'APPROVED' },
+        { id: '2', terms: ['bud'], definition: '', status: 'PENDING' }
+      ],
+      new Set(['1'])
+    )
+    assert.equal(stats.recordCount, 2)
+    assert.equal(stats.emptyDefinitionCount, 1)
+    assert.equal(stats.duplicateIdCount, 0)
+    assert.equal(stats.termOverlapCount, 1)
+    assert.deepEqual(stats.statusBreakdown, { APPROVED: 1, PENDING: 1 })
+    assert.equal(stats.missingZhTranslationCount, 1)
+  })
+
+  it('相同 id 出現兩次時計入重複', () => {
+    const stats = computeDictionaryEntryStats(
+      [
+        { id: '1', terms: [], definition: 'd', status: 'APPROVED' },
+        { id: '1', terms: [], definition: 'd', status: 'APPROVED' }
+      ],
+      new Set()
+    )
+    assert.equal(stats.duplicateIdCount, 1)
+  })
+})
+
+describe('computeGlossaryStats', () => {
+  it('偵測空值與不分大小寫的重複 Short Form', () => {
+    const stats = computeGlossaryStats(
+      [
+        { 'Short Form': 'BUD', 'Full Form (English)': 'Block Update Detector' },
+        { 'Short Form': 'bud', 'Full Form (English)': '' },
+        { 'Short Form': '', 'Full Form (English)': 'Something' }
+      ],
+      ['Short Form', 'Full Form (English)']
+    )
+    assert.equal(stats.columnCount, 2)
+    assert.equal(stats.rowCount, 3)
+    assert.equal(stats.emptyShortFormCount, 1)
+    assert.equal(stats.emptyFullFormCount, 1)
+    assert.equal(stats.duplicateShortFormCount, 1)
+  })
+})
+
+describe('hasUtf8Bom', () => {
+  it('偵測開頭為 UTF-8 BOM 的 buffer', () => {
+    assert.equal(hasUtf8Bom(Buffer.from([0xef, 0xbb, 0xbf, 0x61])), true)
+  })
+
+  it('沒有 BOM 時回傳 false', () => {
+    assert.equal(hasUtf8Bom(Buffer.from('abc', 'utf-8')), false)
+  })
+
+  it('過短的 buffer 不誤判', () => {
+    assert.equal(hasUtf8Bom(Buffer.from([0xef])), false)
+  })
+})
+
+describe('extractRelativeLinkTargets', () => {
+  it('抓取相對連結與圖片目標，忽略 http(s) 與錨點', () => {
+    const targets = extractRelativeLinkTargets(
+      '[本地文件](./a.md) ![圖片](img/b.png) [外部](https://example.com) [錨點](#section)'
+    )
+    assert.deepEqual(targets, ['./a.md', 'img/b.png'])
+  })
+
+  it('沒有連結時回傳空陣列', () => {
+    assert.deepEqual(extractRelativeLinkTargets('純文字內容'), [])
+  })
+})
+
+describe('classifyGtmcFile', () => {
+  it('檔名含 404 判定為 not_found，優先於內容長度判斷', () => {
+    const result = classifyGtmcFile('404.md', '# 標題\n某些內容也不短不短不短不短不短不短不短不短')
+    assert.equal(result.fileType, 'not_found')
+  })
+
+  it('去除標題後正文過短判定為 stub', () => {
+    const result = classifyGtmcFile('a.md', '# 標題\n短')
+    assert.equal(result.fileType, 'stub')
+  })
+
+  it('正文足夠長且檔名正常則判定為 normal', () => {
+    const content = `# 標題\n${'內容'.repeat(30)}`
+    const result = classifyGtmcFile('normal.md', content)
+    assert.equal(result.fileType, 'normal')
+  })
+
+  it('contentHash 等於去除頭尾空白後內容的 sha256', () => {
+    const content = '  # 標題\n內容  '
+    const result = classifyGtmcFile('a.md', content)
+    assert.equal(result.contentHash, sha256(content.trim()))
+  })
+})
+
+describe('diffValues', () => {
+  it('相同值回傳空陣列', () => {
+    assert.deepEqual(diffValues('sources', { a: 1 }, { a: 1 }), [])
+  })
+
+  it('巢狀物件差異回傳完整路徑', () => {
+    const diffs = diffValues('sources', { a: { b: 1 } }, { a: { b: 2 } })
+    assert.deepEqual(diffs, ['sources.a.b: 1 -> 2'])
+  })
+
+  it('新增或刪除欄位也視為差異', () => {
+    const diffs = diffValues('sources', { a: 1 }, { a: 1, b: 2 })
+    assert.deepEqual(diffs, ['sources.b: undefined -> 2'])
+  })
+})

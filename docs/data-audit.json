@@ -1,0 +1,62 @@
+{
+  "sources": {
+    "openst_machine_submission": {
+      "file": "public/database/database.json",
+      "machineCount": 81,
+      "uniqueSubIdCount": 81,
+      "totalTagCount": 228,
+      "emptyDescriptionCount": 0
+    },
+    "legacy_database_csv": {
+      "file": "public/database/database.csv",
+      "logicalRecordCount": 151,
+      "emptyContentCount": 0,
+      "duplicateContentHashCount": 1,
+      "multilineRecordCount": 19
+    },
+    "legacy_database_markdown": {
+      "file": "public/database/database.md",
+      "lineCount": 215,
+      "headingCount": 12
+    },
+    "storage_tech_dictionary": {
+      "entriesDir": "public/database/dictionary/entries",
+      "entryFileCount": 112,
+      "recordCount": 112,
+      "emptyDefinitionCount": 0,
+      "duplicateIdCount": 0,
+      "termOverlapCount": 0,
+      "statusBreakdown": {
+        "APPROVED": 112
+      },
+      "missingZhTranslationCount": 0,
+      "zhTranslationCount": 112,
+      "dictionaryTxt": {
+        "file": "public/database/Dictionary.txt",
+        "lineCount": 117,
+        "malformedLineCount": 0
+      }
+    },
+    "techmc_glossary": {
+      "file": "public/database/TechMC Glossary.csv",
+      "hasBom": true,
+      "columnCount": 26,
+      "rowCount": 415,
+      "emptyShortFormCount": 327,
+      "emptyFullFormCount": 1,
+      "duplicateShortFormCount": 2
+    },
+    "gtmc": {
+      "dir": "public/database/gtmc-database",
+      "fileCount": 23,
+      "headingBlockCount": 230,
+      "fileTypeBreakdown": {
+        "normal": 19,
+        "stub": 2,
+        "not_found": 2
+      },
+      "duplicateWithLegacyCsvCount": 19,
+      "brokenLinkCount": 6
+    }
+  }
+}
