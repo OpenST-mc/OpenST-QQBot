@@ -12,6 +12,17 @@
 //     可从 https://hf-mirror.com/Xenova/paraphrase-multilingual-MiniLM-L12-v2 手动下载
 const MODEL_NAME = 'Xenova/paraphrase-multilingual-MiniLM-L12-v2'
 
+// 仅用于类型检查，编译期会被擦除，不会产生运行时 require()
+type TransformersModule = typeof import('@xenova/transformers')
+
+// @xenova/transformers 是纯 ESM 包，tsc 编译到 commonjs 时会把 await import()
+// 降级为 require()，require() 无法加载纯 ESM 模块导致启动失败。
+// 用 Function 构造器绕开 tsc 对动态 import() 的静态转换，运行时使用真正的
+// 原生动态 import()（Node.js 在 CommonJS 文件中同样支持）
+function importTransformers(): Promise<TransformersModule> {
+  return new Function('return import("@xenova/transformers")')()
+}
+
 // 统一知识条目格式
 export interface KnowledgeEntry {
   source: 'glossary' | 'dictionary' | 'learned'
@@ -31,7 +42,7 @@ async function getExtractor(): Promise<any> {
 
   extractorPromise = (async () => {
     console.log(`[Embedding] 正在加载模型 ${MODEL_NAME}（首次需下载 ~470MB）...`)
-    const { pipeline, env } = await import('@xenova/transformers')
+    const { pipeline, env } = await importTransformers()
 
     await setupFetchProxy()
 
