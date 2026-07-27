@@ -20,7 +20,7 @@
 | 儲存科技詞典 | `public/database/dictionary/` | 英文詞條、中文翻譯、別名與引用關係 |
 | 舊術語對照 | `public/database/Dictionary.txt` | 補充別名與翻譯候選 |
 | 多語詞彙表 | `public/database/TechMC Glossary.csv` | Minecraft 多語術語與定義 |
-| GTMC 文件 | `public/database/gtmc-database/` | 經典技術文件、機制與版本知識 |
+| 技術文件初始來源 | `public/database/gtmc-database/` | 通用文件攝取管線的第一批 Markdown 輸入，不具特殊程式邏輯 |
 
 ### 本期不納入
 
@@ -36,13 +36,13 @@
 | 資料 | 目前狀態 | 目標定位 | 遷移處理 |
 | --- | --- | --- | --- |
 | `database.json` | 只讀 JSON，推薦時全量載入 | 正式機器目錄 | 匯入 `machines` 與 `machine_tags` |
-| `database.csv` | `topic,content`，沒有來源、版本或審核資料 | 一般知識的既有匯入來源 | 匯入 `knowledge_entries`，預設標記為 legacy |
+| `database.csv` | 歷史混合資料，沒有來源、版本或審核資料 | 獨立的歷史資料救援工作 | 不屬於主線文件攝取規格，另開 session 處理 |
 | `database.md` | 可閱讀的舊學習日誌，不在執行期讀取 | 原始來源或人工佐證 | 匯入為文件，不直接當正式 Claim |
 | `dictionary/entries` | 英文詞條與 Discord 來源 | 正式術語原始來源 | 匯入 `terms`、`term_aliases`、`term_evidence` |
 | `zh-translations.json` | 中文術語與定義 | 正式翻譯來源 | 匯入 `term_translations` |
 | `Dictionary.txt` | 人工中英對照，不在執行期讀取 | 補充翻譯候選 | 匯入待比對，避免覆蓋正式詞典 |
 | `TechMC Glossary.csv` | 多語 CSV；欄位與現有程式期待不一致 | 多語術語來源 | 依實際欄位轉換後匯入 |
-| `gtmc-database` | Markdown 文件，不在執行期直接檢索 | 高可信技術文件 | 依標題與段落匯入 `documents`、`document_chunks` |
+| `gtmc-database` | Markdown 文件，不在執行期直接檢索 | 通用文件攝取的初始樣本 | 依一般文件規則匯入 `documents`、`document_chunks` |
 
 ## 核心原則
 
@@ -78,14 +78,15 @@
 
 | 表 | 必要欄位 | 用途 |
 | --- | --- | --- |
-| `sources` | `id`, `public_id`, `type`, `name`, `creator`, `url`, `license`, `license_url`, `visibility`, `trust_level`, `created_at` | 登記 GTMC、詞典、社群資料等來源；`public_id` 是對外穩定引用 ID，`visibility` 控制是否可公開 |
+| `sources` | `id`, `source_key`, `type`, `name`, `creator`, `url`, `license`, `license_url`, `visibility`, `trust_level`, `created_at` | 登記 GTMC、詞典、社群資料等來源；`source_key` 是匯入器使用的穩定來源鍵，`visibility` 控制是否可公開 |
 | `import_runs` | `id`, `source_id`, `importer_version`, `started_at`, `finished_at`, `status`, `summary` | 保留每次匯入的版本、結果與錯誤，不讓匯入成為不可追溯覆蓋 |
 | `raw_assets` | `id`, `import_run_id`, `source_path`, `content`, `content_hash`, `encoding`, `logical_record_no`, `status` | 原始檔、CSV 邏輯記錄或 Markdown 快照；永不因清理而遺失 |
 | `content_quality_flags` | `id`, `raw_asset_id`, `flag_type`, `detected_by`, `evidence`, `status` | 404、空內容、導航、重複、拼寫疑慮、衝突或未完成等品質旗標 |
+| `ai_jobs` | `id`, `raw_asset_id`, `task_type`, `payload`, `status`, `attempts`, `available_at`, `last_error` | 背景 AI 分流的可恢復工作佇列；掃描器只入隊、不阻塞 Bot |
 | `documents` | `id`, `source_id`, `path_or_url`, `title`, `language`, `content_hash`, `status`, `created_at`, `updated_at` | 一篇完整 Markdown、日誌或匯入文件 |
 | `document_versions` | `id`, `document_id`, `content`, `content_hash`, `imported_at` | 保留文件修訂，避免直接覆蓋歷史 |
 | `document_chunks` | `id`, `document_id`, `heading_path`, `content`, `chunk_index`, `token_count`, `status` | 可被搜尋及引用的最小文件段落 |
-| `source_references` | `id`, `public_id`, `source_id`, `document_id`, `document_chunk_id`, `display_title`, `creator`, `source_url`, `source_anchor`, `visibility`, `modification_note` | 回答引用與來源網站使用的穩定條目；可連至文件或精確段落 |
+| `source_references` | `id`, `public_id`, `source_id`, `document_id`, `document_chunk_id`, `display_title`, `creator`, `source_url`, `source_anchor`, `visibility`, `modification_note` | 回答引用使用的本地穩定條目；可連至文件或精確段落 |
 | `answer_feedback_items` | `id`, `feedback_id`, `ordinal`, `statement`, `verdict`, `reason`, `evidence_refs` | 「部分正確」判定時拆出的原子知識點與逐點判定 |
 
 文件 Chunk 的 FTS5 與向量索引應以 `document_chunks.id` 關聯，不直接取代原始段落內容。
@@ -171,7 +172,7 @@ Claim 的向量索引應以 `claims.id` 關聯，與文件 Chunk 向量索引分
 7. 匯入資料預設進入 `pending` 或依來源政策決定狀態。
 8. 僅在人工審核後進入 Answer Index；原始資料與被拒絕資料仍可追溯但不索引。
 
-Raw 區的內容、QQ 使用者 ID、群組 ID、原始附件解析文字與原始模型輸出永久保存，但只能由知識審核白名單讀取。公開回答、引用、來源網站與向量索引不得輸出或索引這些原始識別資訊；社群來源預設顯示「社群整理」，只有原始貢獻者明確選擇公開署名時才可顯示名稱。
+Raw 區的內容、QQ 使用者 ID、群組 ID、原始附件解析文字與原始模型輸出永久保存，但只能由知識審核白名單讀取。一般回答、引用與向量索引不得輸出或索引這些原始識別資訊；社群來源預設顯示「社群整理」，只有原始貢獻者明確選擇公開署名時才可顯示名稱。
 
 ### 既有資料的初始狀態
 
@@ -384,9 +385,9 @@ AI 必須以工作區內容作答，不可把待審內容敘述成已確認事�
 | D3 | 自動學習不受 `QQ_LEARN_WHITELIST` 限制，直接寫入被全體使用者檢索的知識庫 | 未審核內容污染正式回答 | T3.6、T3.8 |
 | D4 | 附件下載無網域白名單，與 `submissions/download.ts` 的 SSRF 防護標準不一致 | 防禦深度不一致 | TX.4 |
 | D5 | 知識寫入無去重、無來源、無法修正 | 知識庫單向膨脹且不可維護 | T3.1、T3.9 |
-| D6 | `database.csv` 將術語翻譯、社群知識、完整 GTMC 文件混為 `topic,content`；19 份 GTMC 文件與原目錄逐字重複 | 重複向量、來源遺失、長文被錯當單一知識 | T0.5、T2.4、T3.4 |
-| D7 | GTMC 含 404、空序言、純導航、僅提綱與失效相對連結 | 無效內容會被誤檢索為技術證據 | T0.5、T2.4 |
-| D8 | CSV 含拼寫錯誤、同義詞重複、混合多概念與衝突事實 | 直接遷移會把錯誤固化為知識 | T0.5、T2.6、T3.5 |
+| D6 | 歷史 `database.csv` 將術語翻譯、社群知識、完整文件混為 `topic,content` | 歷史救援資料，不影響主線通用攝取 | 獨立 session 的 T3.4 |
+| D7 | 外部文件可能含 404、空序言、純導航、僅提綱與失效相對連結 | 通用文件品質問題 | T0.5、T2.4 |
+| D8 | 歷史 CSV 含拼寫錯誤、同義詞重複、混合多概念與衝突事實 | 歷史救援資料 | 獨立 session 的 T3.4 |
 
 ## 前期資料清理與分流
 
@@ -396,12 +397,12 @@ SQLite 遷移不是搬檔案。所有舊資料先進 `raw_assets`，再依下列
 | --- | --- | --- |
 | GTMC 合格技術文章 | 保留原文件、依標題切 chunk；結構解析後以 AI 補充內容品質、版本與 Candidate Claim，記錄品質結果 | `documents`、`document_chunks`、`extraction_candidates` |
 | GTMC 404、空序言、純目錄、僅提綱、失效連結文件 | 建立品質旗標，不建立可檢索 chunk | `raw_assets`、`content_quality_flags` |
-| CSV 中與 GTMC 完全相同的 19 份長文 | 不重複建立文件或向量，只建立來源追溯關係 | `raw_assets`、provenance 關聯 |
+| 任意 Raw 來源中的完全相同文件 | 不重複建立文件或向量，只建立來源追溯關係 | `raw_assets`、provenance 關聯 |
 | CSV 中短術語、中英翻譯、縮寫 | AI 比對 dictionary/Glossary 後，建立 alias 或 translation 候選 | `extraction_candidates` |
 | CSV 中有獨立價值的社群解釋 | AI 整理為結構化 community note 或 Claim 候選 | `extraction_candidates` |
 | CSV 中拼寫錯誤、同義重複、混合兩個概念、衝突事實 | 標記品質問題並建立修正或拆分候選，不直接進索引 | `content_quality_flags`、`extraction_candidates` |
 
-`database.csv` 的全部 151 筆邏輯記錄一開始只能進 `raw_assets`，不得直接寫入 `knowledge_entries`、`terms`、`term_aliases`、`term_translations` 或 `claims`。確定性規則先處理雜湊重複、空內容、404、導航與格式錯誤；AI 再判斷「短記錄是術語、社群筆記或錯誤」、「兩個詞是否為同義」、「長文是否具足夠正文」、「內容應拆成幾個 Candidate Claim」。
+歷史 `database.csv` 的救援遷移不在本 Plan 主線執行，必須另立 session、分支、Fixture 與人工驗收規格。主線只定義未來新增 Raw 文件的通用攝取：確定性規則先處理雜湊重複、空內容、404、導航與格式錯誤；AI 再判斷文件區塊是術語、教學、Claim 或需要人工處理的內容。
 
 AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`normalized_title`、`normalized_content`、`term_refs`、`source_raw_asset_id`、`quality_flags`、`confidence` 與 `rationale`。候選先存入 `extraction_candidates`；通過 JSON schema、來源回鏈與品質規則後，系統自動 materialize 為 `pending` 的術語、知識或 Claim。`include_pending` 模式只可使用這些已結構化的 pending 項目，不能直接檢索 CSV 原文；任何候選都不得自動成為 `approved`。
 
@@ -414,7 +415,7 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 | 2 | 文件與術語遷移 | 10 | `documents`、`terms`、切段器 |
 | 3 | 知識與 Claim 審核 | 9 | `knowledge_entries`、`claims`、審核流程 |
 | 4 | 混合檢索 | 6 | FTS5、向量版本化、RRF |
-| 5 | 證據式回答與來源目錄 | 6 | Evidence Workspace、引用、來源網站介面 |
+| 5 | 證據式回答 | 5 | Evidence Workspace、引用 |
 | 6 | 實驗資料 | 3 | `experiments` |
 
 ---
@@ -432,7 +433,7 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 | T0.2 | 狀態與可信度枚舉定案 | 無 | `src/db/enums.ts` | `status` 與 `confidence` 常數為全專案唯一真源，不得散落字串字面值 |
 | T0.3 | 資料盤點與缺陷登記 | 無 | 盤點報告（已完成大部分，見上表） | 每個來源的實際欄位、筆數、編碼、異常皆登記；D1-D8 有指派 Track |
 | T0.4 | 評測題庫建立（30-50 題，涵蓋 7 種類型） | 無 | `eval/questions.json` | 題目涵蓋術語定義、別名、版本限制、多證據推理、機器推薦、衝突處理、拒答 |
-| T0.5 | 清理與分流規則：為既有 CSV／GTMC 建立可重複執行的品質分類、去重與保留策略 | 無 | `docs/data-triage.md`、fixture | CSV 以 RFC 4180 解析為 151 筆邏輯記錄；19 份重複 GTMC 僅保留 provenance；404、空白、純導航、僅提綱、失效連結、術語重複與衝突事實都有明確去向 |
+| T0.5 | 通用文件攝取規則：為 Markdown、Wiki 匯出 HTML、純文字教學建立可重複執行的解析、品質分類、去重與保留策略 | 無 | `docs/document-ingestion.md`、fixture | 任意支援格式都能產生 Raw、結構區塊、品質旗標、AI 候選與可審核 Chunk；不依來源名稱寫特殊邏輯 |
 
 ### 關卡 G0
 
@@ -445,29 +446,30 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 
 | 主題 | 決策 | 對實作的約束 |
 | --- | --- | --- |
-| GTMC 授權 | `CC BY-NC-SA 4.0` | 每次使用 GTMC 證據的回答需列來源 ID、作品／文章名稱與作者或署名對象；找不到作者時留空；來源網站須展示完整授權與修改標記 |
+| GTMC 授權 | `CC BY-NC-SA 4.0` | 每次使用 GTMC 證據的回答需列來源 ID、作品／文章名稱與作者或署名對象；找不到作者時留空 |
 | 詞典授權 | `GPL-3.0-or-later` | 來源目錄保留原始來源連結、著作權聲明與授權資訊 |
 | 機器投稿 | 僅用於機器推薦 | 投稿者已同意 OpenST 投稿條款；Bot 顯示既有 OpenST 檔案庫連結，不建立額外來源目錄條目 |
-| TechMC Glossary | 來源與授權待提供 | 取得 URL、作者與再散布條件前，僅可內部檢索與審核，不進公開來源網站 |
-| 社群 Raw 證據 | 永久保存，但僅 Raw 區完整保存 | 原始 QQ ID、群組 ID、訊息與附件文字不可進公開來源、索引或一般回答 |
-| 社群公開署名 | 預設匿名 | 公開回答與來源網站顯示「社群整理」；僅明確同意時顯示貢獻者名稱 |
+| TechMC Glossary | 來源與授權待提供 | 取得 URL、作者與再散布條件前，僅可內部檢索與審核 |
+| 社群 Raw 證據 | 永久保存，但僅 Raw 區完整保存 | 原始 QQ ID、群組 ID、訊息與附件文字不可進索引或一般回答 |
+| 社群公開署名 | 預設匿名 | 一般回答來源顯示「社群整理」；僅明確同意時顯示貢獻者名稱 |
 | 審核權限 | `/review` 與 `/judge` 各自獨立使用者與群組白名單 | 新增 `KNOWLEDGE_REVIEWER_USERS`、`KNOWLEDGE_REVIEWER_GROUPS`、`KNOWLEDGE_JUDGE_USERS`、`KNOWLEDGE_JUDGE_GROUPS`；使用者或群組任一命中即具備身份，不可沿用投稿審核者作隱性預設 |
 | 試用模式 | QQ 管理命令持久切換 | 模式值與切換稽核存 SQLite；僅知識審核者可切換 |
 | SQLite 備份 | 本期暫不實作 | Phase 1 僅記錄風險與 DB 路徑；後續另立備份 Track |
 | SQLite 路徑 | `public/database/knowledge.db` | 第一版不加入 gitignore；後續可加環境變數覆蓋與備份策略 |
+| SQLite 主鍵 | 所有內部表使用 `INTEGER PRIMARY KEY AUTOINCREMENT` | 對外不得暴露內部 ID；每個可引用 Chunk 的公開 ID 由 `source_references.id` 衍生 |
+| Raw 內容 | Raw 目錄是唯一完整原文 | `raw_assets` 只保存來源路徑、邏輯記錄號、雜湊、編碼與處理 metadata，不複製正文至 SQLite |
+| DB 版本控制 | 提交完整 `knowledge.db` | DB 包含整理資料、AI 候選、審核紀錄與向量；Raw 原文仍以檔案管理 |
 | 啟動匯入 | migration 後掃描 Raw 目錄與機器 JSON | Raw 以 manifest 比對未匯入或雜湊已改變檔案並自動增量匯入；`database.json` 雜湊變更時直接同步 machines，不經 AI |
 | AI API | Flash／Pro 共用現有 API，均支援 JSON | 僅 API Key 讀環境變數；模型 ID 以集中常數 `DEEPSEEK_MODEL_FLASH`、`DEEPSEEK_MODEL_PRO` 定義；不納入費率與配額處理 |
-| 來源網站 | Bot 輸出固定來源 URL；網站可為靜態網站 | 對外來源 ID 採 `SRC-00000001` 全域流水號，每個可引用 Chunk 一個 ID；首次建立後永不改變或重用；橋接層可另行匯出公開投影，Raw 區不可公開 |
-| 網站來源對照 | Bot 只維護本地來源與 ID 對照表 | 產生不含 Raw 正文與 QQ 資訊的 `source-id-map.json`；網站完全獨立，可自行抓取完整來源後按 `SRC-*` 對應 |
-| 歷史 CSV／Markdown 與社群內容 | Raw 僅內部保存；整理核准後公開 | 每個整理後可引用 Chunk 保留 `SRC-*`；公開網站只輸出核准後的整理內容與匿名「社群整理」署名，不輸出 Raw、QQ ID 或群組 ID |
-| 社群整理公開條款 | OpenST 自訂內容條款 | 公開投影須連至條款 URL；條款內容與 URL 提供前，不發布新社群整理來源頁 |
+| 本地引用 ID | Bot 維護 `SRC-00000001` 全域流水號 | 每個可引用 Chunk 一個 ID；首次建立後永不改變或重用；不包含外部網站功能 |
+| 歷史 CSV／Markdown 與社群內容 | Raw 僅內部保存 | 每個整理後可引用 Chunk 保留 `SRC-*`；一般回答只輸出核准後內容與匿名「社群整理」署名，不輸出 Raw、QQ ID 或群組 ID |
 | 回覆判定 | 正確、錯誤、部分正確、修改建議 | 部分正確須拆分知識點逐項判定；修改建議建立待審修訂候選 |
 
 ### Phase 0 實作規格
 
 #### T0.1 來源政策
 
-**目的**：建立唯一的來源登錄清單，讓每個匯入器在寫入前就知道資料是否可公開、如何署名及是否需要阻擋公開投影。
+**目的**：建立唯一的來源登錄清單，讓每個匯入器在寫入前就知道資料的使用限制、如何署名及是否可在一般回答中引用。
 
 **產出**：`docs/source-policy.md`。每個來源一列，欄位固定為 `source_key`、`type`、`display_name`、`creator`、`origin_url`、`license`、`license_url`、`visibility_default`、`attribution_rule`、`public_export_rule`、`status`。
 
@@ -481,11 +483,11 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 | `openst_machine_submission` | `internal` | 僅機器推薦使用，連至既有 OpenST 檔案庫，不建立來源目錄頁 |
 | `legacy_database_csv` | `internal` | 只作 Raw 與 AI 整理來源；核准整理內容以 `openst_community` 發布 |
 | `legacy_database_markdown` | `internal` | 只作 Raw 與 AI 整理來源；核准整理內容以 `openst_community` 發布 |
-| `openst_community` | `internal` | OpenST 公開條款 URL 未設定前不可公開投影；公開時預設署名「社群整理」 |
+| `openst_community` | `internal` | Bot 回答預設署名「社群整理」；公開網站與條款不屬於本專案範圍 |
 
 **驗收**：匯入器不得在程式中硬編碼授權、作者或 visibility；所有值必須由政策表或資料庫 `sources` 取得。缺少 `license` 或 `public_export_rule` 的 public 來源必須拒絕公開匯出，但可保存 Raw。
 
-**外部阻擋**：TechMC Glossary 的來源／授權，以及 OpenST 公開條款 URL。
+**外部阻擋**：TechMC Glossary 的來源／授權。公開來源網站與 OpenST 公開條款不屬於本專案範圍。
 
 #### T0.2 枚舉與狀態轉移
 
@@ -499,7 +501,7 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 | 公開性 | `internal`, `public` |
 | 候選狀態 | `generated`, `materialized`, `rejected`, `superseded` |
 | 品質旗標 | `empty`, `stub`, `navigation`, `not_found`, `broken_link`, `duplicate_exact`, `duplicate_near`, `mixed_concepts`, `possible_typo`, `conflicting_fact`, `license_unknown` |
-| AI 任務 | `csv_triage`, `gtmc_quality`, `term_normalize`, `claim_extract`, `query_plan`, `answer_split`, `feedback_classify`, `conflict_review`, `answer_synthesis` |
+| AI 任務 | `document_triage`, `document_quality`, `term_normalize`, `claim_extract`, `query_plan`, `answer_split`, `feedback_classify`, `conflict_review`, `answer_synthesis` |
 | 回答判定 | `correct`, `incorrect`, `partial`, `amend` |
 
 狀態機最小規則：`pending -> approved|rejected|deprecated|disputed`；`approved -> deprecated|disputed`；`rejected` 不得直接回 `approved`，必須建立新候選或明確修訂紀錄。`legacy_review` 只能由審核者轉為 `approved`、`rejected` 或 `deprecated`。
@@ -510,9 +512,7 @@ AI 必須輸出可驗證的結構化候選，至少包含 `candidate_type`、`no
 
 **目的**：把目前的人工檢查變成可重跑的基準，而非文件中的一次性數字。
 
-**產出**：`scripts/audit-knowledge-data.ts` 與 `docs/data-audit.json`。稽核器必須使用 RFC 4180 parser 讀取 CSV，輸出邏輯記錄數、跨行記錄數、空欄位、重複雜湊、與 GTMC 的精確重複、詞典／Glossary 精確術語重疊、Markdown 類型與失效連結。
-
-**基準斷言**：CSV 為 151 筆邏輯記錄；GTMC 為 23 份 Markdown；CSV 與 GTMC 有 19 份精確重複。數字改變時稽核器不可靜默通過，必須輸出差異報告供審核。
+**產出**：`scripts/audit-knowledge-data.ts` 與 `docs/data-audit.json`。稽核器依來源格式使用對應 parser，輸出檔案數、邏輯記錄數、空內容、重複雜湊、結構區塊、術語重疊、文件類型與失效連結。來源新增或變更時，稽核器必須輸出差異報告供審核，不可靜默通過。
 
 #### T0.4 評測題庫
 
@@ -532,57 +532,49 @@ expected_answer_properties, expected_uncertainty, status
 
 1. CSV 僅以 RFC 4180 parser 讀取；禁止按換行切割。
 2. 空內容、404、純導航、僅目錄、僅標題、失效連結先建立品質旗標。
-3. 檔案雜湊精確重複時，保留 Raw，但只選一個 canonical source；CSV 中 19 份 GTMC 副本只能建立 provenance。
+3. 檔案雜湊精確重複時，保留所有 Raw，但只選一個 canonical source；其他副本只能建立 provenance。
 4. 已知術語的大小寫、空白與括號格式只可正規化為比對鍵，不可改寫 Raw 原文。
 5. 部分完成文件只保留已完成段落；標示「暫未完成」的段落建立 `stub` 旗標且不切入索引。
 6. 文字正文完整但圖片或相對連結失效時，保留正文與 Chunk，建立 `broken_link` 旗標；不刪除原始連結語法。
 
-**Flash 的 `csv_triage` 結構化輸出**：每個非重複 CSV 邏輯記錄輸出 `candidate_type`（`term`, `community_note`, `claim`, `discard`, `needs_review`）、正規化標題與正文、引用的 Raw ID、相關 term 候選、品質旗標、理由與信心值。輸出必須通過 JSON schema；無法判斷或含衝突事實時輸出 `needs_review`，不得猜測。
+**Flash 的 `document_triage` 結構化輸出**：每個非重複 Raw 區塊輸出 `candidate_type`（`term`, `community_note`, `claim`, `discard`, `needs_review`）、正規化標題與正文、引用的 Raw ID、相關 term 候選、品質旗標、理由與信心值。輸出必須通過 JSON schema；無法判斷或含衝突事實時輸出 `needs_review`，不得猜測。
 
-**Pro 的介入條件**：只有 `conflicting_fact`、`mixed_concepts`、跨多個 GTMC／詞典來源或 Flash 無法分類的項目，才使用 Pro 產生比較報告與 Candidate Claim。Pro 輸出仍只是 `extraction_candidate`。
+**Pro 的介入條件**：只有 `conflicting_fact`、`mixed_concepts`、跨多個文件／詞典來源或 Flash 無法分類的項目，才使用 Pro 產生比較報告與 Candidate Claim。Pro 輸出仍只是 `extraction_candidate`。
 
 **materialize 規則**：候選具有有效 Raw 回鏈、合法 JSON、非空正文且未帶阻擋品質旗標時，自動建立 `pending` 項目。`discard`、`not_found`、`navigation`、`stub`、`duplicate_exact` 不 materialize。`possible_typo`、`mixed_concepts`、`conflicting_fact` 只建立 `needs_review` 型候選，不可 materialize 為 pending 或進 Answer Index。
 
 **驗收**：清理作業必須輸出每個 Raw ID 的唯一結果：`provenance_only`、`candidate`、`pending` 或 `excluded`，並可由報告追溯原因、規則版本與 AI run ID。
 
-**AI 驗收策略**：採「錄製 AI JSON Fixture + 規則層自動測試」。即時 Flash／Pro 只對新 Raw 資料產生候選；已確認的 CSV、GTMC、`/learn` 範例將其結構化輸出保存為 Fixture。回歸測試不呼叫即時模型，而是重播 Fixture，驗證 JSON schema、Raw 回鏈、品質旗標、materialize、去重、審核狀態與 Answer Index 隔離。規則層測試另需驗證：即使收到未知或不合法 AI JSON，也不能讓資料跳過 pending 直接進 `approved`。
+**AI 驗收策略**：採「錄製 AI JSON Fixture + 規則層自動測試」。即時 Flash／Pro 只對新 Raw 資料產生候選；已確認的 Markdown、HTML、文字教學與 `/learn` 範例將其結構化輸出保存為 Fixture。回歸測試不呼叫即時模型，而是重播 Fixture，驗證 JSON schema、Raw 回鏈、品質旗標、materialize、去重、審核狀態與 Answer Index 隔離。規則層測試另需驗證：即使收到未知或不合法 AI JSON，也不能讓資料跳過 pending 直接進 `approved`。
 
 **Fixture 檔案**：
 
 ```text
 eval/fixtures/triage/
-  csv-expected.json
-  gtmc-expected.json
+  document-expected.json
   duplicate-provenance.json
   ai-responses/
-    csv-triage/<raw-content-hash>.json
-    gtmc-quality/<raw-content-hash>.json
+    document-triage/<raw-content-hash>.json
+    document-quality/<raw-content-hash>.json
     conflict-review/<raw-content-hash>.json
 ```
 
-`csv-expected.json` 的每筆資料固定包含：
+`document-expected.json` 的每筆資料固定包含：
 
 ```text
-logical_record_no, topic, raw_content_hash, expected_outcome,
+source_path, logical_record_no, raw_content_hash, expected_outcome,
 expected_candidate_type, required_flags, forbidden_flags,
-canonical_source_path, expected_term_aliases, notes
-```
-
-`gtmc-expected.json` 的每筆資料固定包含：
-
-```text
-source_path, raw_content_hash, document_outcome,
 expected_completed_headings, excluded_headings,
 required_flags, broken_links, public_visibility, notes
 ```
 
-`duplicate-provenance.json` 固定列出 CSV 邏輯記錄與 canonical GTMC 檔案的對應：
+`duplicate-provenance.json` 固定列出任何兩份 Raw 內容與 canonical 文件的對應：
 
 ```text
-csv_logical_record_no, canonical_source_path, duplicate_hash, relation
+source_path, logical_record_no, canonical_source_path, duplicate_hash, relation
 ```
 
-其中 `relation` 在本期只允許 `exact_duplicate`。Fixture 必須涵蓋全部 151 筆 CSV 邏輯記錄與全部 23 份 GTMC Markdown；任何未列入 Fixture 的輸入都使稽核失敗。新增或變更來源時，必須先更新 Fixture 並經知識審核者核准。
+其中 `relation` 在本期只允許 `exact_duplicate`。Fixture 使用一組核准的代表性 Markdown、HTML、文字、部分完成文件、導航頁、404 頁與重複內容案例；它驗證管線能力，不要求每一份未來來源逐筆人工預先分類。新增 parser 或品質規則時，必須加入對應 Fixture 並經知識審核者核准。
 
 AI 回覆 Fixture 的檔名使用輸入 Raw 內容的 SHA-256，不使用模型生成的標題。每份 Fixture 必須包含 `task_type`、`model`、`prompt_version`、`input_hash`、`response`、`approved_by`、`approved_at`。模型升級或 prompt 變更時，舊 Fixture 不覆蓋；以新版本檔案並列保存，並由評測題庫明確指定採用哪個版本。
 
@@ -602,8 +594,8 @@ AI 回覆 Fixture 的檔名使用輸入 Raw 內容的 SHA-256，不使用模型�
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T1.2 | `sources`、`import_runs`、`raw_assets`、`content_quality_flags`、`ai_runs`、`extraction_candidates`、`source_references` 表與來源註冊工具 | T1.1 | schema、`registerSource()`、raw snapshot 工具 | 同雜湊不重複匯入；每個可引用 Chunk 的對外 ID 採 `SRC-00000001` 全域序號，首次建立後永久不變且永不重用；pending 的 ID 已保留但不進公開投影；來源、原始內容、編碼、品質旗標與 AI 候選均可查詢 |
-| T1.3 | `machines` / `machine_tags` / `machine_terms` / `machine_relations` 建表 | T1.1 | schema 檔 | 後兩張表建立但本階段不寫入，避免日後破壞性遷移；機器資料不建立 `source_references`，維持既有 OpenST 檔案庫連結 |
+| T1.2 | `sources`、`import_runs`、`raw_assets`、`content_quality_flags`、`ai_jobs`、`ai_runs`、`extraction_candidates` 表與來源註冊工具 | T1.1 | schema、`registerSource()`、raw snapshot 工具 | 同雜湊不重複匯入；來源、檔案參照、編碼、品質旗標、可恢復 AI 佇列與候選均可查詢；Raw 正文不寫入 SQLite |
+| T1.3 | `machines` / `machine_tags` / `machine_relations` 建表 | T1.1 | schema 檔 | `machine_relations` 建立但本階段不寫入；`machine_terms` 等 T2.2 建立 `terms` 後再建立；機器資料不建立 `source_references`，維持既有 OpenST 檔案庫連結 |
 | T1.5a | **遷移前**基準快照：對評測題庫的機器推薦類問題執行現行 `searchMachines()`，記錄各題 top-5 `sub_id` 順序 | T0.4 | `eval/baseline-machines.json` | 必須在 T1.4 改動程式碼**之前**完成 |
 
 ### 批次 1-C
@@ -646,6 +638,210 @@ public/database/
 
 T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Track 對 CSV、GTMC 或詞典內容做清理、AI 改寫或資料語意變更。
 
+### Phase 1 實作規格
+
+#### T1.1 連線與 migration
+
+資料庫只能由 `src/db/connection.ts` 開啟。每個新連線必須依序執行：
+
+```sql
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA busy_timeout = 5000;
+```
+
+`src/db/migrate.ts` 依檔名字典序執行 `src/db/migrations/<version>_<name>.sql`。每份 migration 必須在單一 transaction 中完成，成功後才寫入：
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+```
+
+已存在的 version 不得重跑。migration 失敗時 transaction rollback、Bot 啟動失敗並輸出 version 與原始錯誤；不得在部分 schema 下繼續接收 QQ 事件。
+
+所有內部表遵循：`id INTEGER PRIMARY KEY AUTOINCREMENT`、時間使用 UTC ISO-8601 text、布林使用 `INTEGER CHECK (value IN (0, 1))`、JSON 儲存為 `TEXT` 並由 TypeScript schema 驗證。除公開 `SRC-*` 外，任何回覆、URL 或 AI prompt 不得暴露內部 `id`。
+
+#### T1.2 Raw 與 AI 審計 DDL
+
+Migration `0001_core.sql` 必須建立下列資料表與索引：
+
+```sql
+CREATE TABLE sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_key TEXT NOT NULL UNIQUE,
+  type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  creator TEXT,
+  url TEXT,
+  license TEXT,
+  license_url TEXT,
+  visibility TEXT NOT NULL CHECK (visibility IN ('internal', 'public')),
+  trust_level TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE import_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  importer_version TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+  summary_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE raw_assets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  import_run_id INTEGER REFERENCES import_runs(id),
+  asset_key TEXT NOT NULL UNIQUE,
+  relative_path TEXT NOT NULL,
+  logical_record_no INTEGER,
+  content_hash TEXT NOT NULL,
+  encoding TEXT NOT NULL,
+  byte_size INTEGER NOT NULL CHECK (byte_size >= 0),
+  status TEXT NOT NULL CHECK (status IN ('discovered', 'processed', 'failed')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX raw_assets_source_hash_record
+  ON raw_assets(source_id, content_hash, logical_record_no);
+
+CREATE TABLE content_quality_flags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  raw_asset_id INTEGER NOT NULL REFERENCES raw_assets(id) ON DELETE CASCADE,
+  flag_type TEXT NOT NULL,
+  detected_by TEXT NOT NULL CHECK (detected_by IN ('rule', 'flash', 'pro', 'reviewer')),
+  evidence TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('open', 'accepted', 'dismissed')),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX content_quality_flags_asset ON content_quality_flags(raw_asset_id);
+CREATE INDEX content_quality_flags_open ON content_quality_flags(flag_type, status);
+
+CREATE TABLE ai_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  raw_asset_id INTEGER NOT NULL REFERENCES raw_assets(id) ON DELETE CASCADE,
+  task_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  available_at TEXT NOT NULL,
+  locked_at TEXT,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX ai_jobs_next ON ai_jobs(status, available_at, id);
+
+CREATE TABLE ai_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ai_job_id INTEGER REFERENCES ai_jobs(id),
+  raw_asset_id INTEGER REFERENCES raw_assets(id),
+  task_type TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'deepseek',
+  model TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  output_json TEXT NOT NULL,
+  usage_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL CHECK (status IN ('succeeded', 'failed', 'invalid')),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX ai_runs_asset_task ON ai_runs(raw_asset_id, task_type);
+CREATE INDEX ai_runs_job ON ai_runs(ai_job_id);
+CREATE INDEX ai_runs_input_hash ON ai_runs(input_hash);
+
+CREATE TABLE extraction_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  raw_asset_id INTEGER NOT NULL REFERENCES raw_assets(id),
+  ai_run_id INTEGER NOT NULL REFERENCES ai_runs(id),
+  candidate_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  status TEXT NOT NULL CHECK (status IN ('generated', 'materialized', 'rejected', 'superseded')),
+  materialized_type TEXT,
+  materialized_id INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX extraction_candidates_status ON extraction_candidates(status, candidate_type);
+CREATE INDEX extraction_candidates_raw ON extraction_candidates(raw_asset_id);
+```
+
+`raw_assets` 絕不含完整正文；`relative_path + logical_record_no + content_hash` 足以從 Raw 目錄重建原始內容。`asset_key` 格式固定為 `<source_key>:<relative_path>:<logical_record_no-or-file>:<sha256>`，並以 source key、正斜線相對路徑、十進位邏輯記錄號與小寫 SHA-256 組成。
+
+#### T1.3 機器資料 DDL
+
+Migration `0002_machines.sql` 必須建立：
+
+```sql
+CREATE TABLE machines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT 'Unknown',
+  description TEXT NOT NULL DEFAULT '',
+  preview_path TEXT NOT NULL DEFAULT '',
+  filename TEXT NOT NULL DEFAULT '',
+  sub_id TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'approved',
+  source_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE machine_tags (
+  machine_id INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  PRIMARY KEY (machine_id, tag)
+) WITHOUT ROWID;
+
+CREATE TABLE machine_relations (
+  machine_id INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+  relation_type TEXT NOT NULL,
+  related_machine_id INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+  PRIMARY KEY (machine_id, relation_type, related_machine_id),
+  CHECK (machine_id <> related_machine_id)
+) WITHOUT ROWID;
+
+CREATE INDEX machines_name ON machines(name);
+CREATE INDEX machines_author ON machines(author);
+CREATE INDEX machine_tags_tag ON machine_tags(tag);
+```
+
+`machines.source_id` 保存 `database.json` 的既有 `id` 文字欄位，不能誤作內部主鍵。`source_hash` 是該 JSON 物件 canonical JSON 的 SHA-256；匯入器只可更新由 JSON 管理的欄位，不可覆蓋人工調整的 `status`。
+
+#### T1.2a Raw manifest
+
+`public/database/raw/import-manifest.json` 是本機 generated state，不提交 Git。格式固定為：
+
+```json
+{
+  "version": 1,
+  "files": {
+    "gtmc-database/MicroTiming/01-刻与刻间时序.md": {
+      "sha256": "<lowercase-hex>",
+      "lastImportRunId": 42,
+      "lastImportedAt": "2026-07-28T00:00:00.000Z",
+      "status": "succeeded"
+    }
+  }
+}
+```
+
+掃描器只接受 Raw 根目錄內的 regular file，不跟隨 symbolic link，不掃描 manifest 本身。檔案變動採 500ms debounce；掃描與匯入以單一 process mutex 串行化。匯入失敗時保留舊 manifest 項目、記錄 `failed` 結果，下次檔案變動或重啟時重試。
+
+掃描器完成 Raw 註冊與確定性品質檢查後，只能建立 `ai_jobs.status = 'queued'`，不得在掃描流程直接呼叫模型。QQ WebSocket 可在背景 worker 處理 jobs 時正常啟動與回覆；未完成項目不會出現在檢索結果。worker 每次以單一 job 執行，取得 job 時以 transaction 將 `queued` 改為 `running` 並遞增 `attempts`；進程啟動時將殘留 `running` job 重設為 `queued`。成功時建立 `ai_runs` 和候選後標為 `succeeded`；失敗時保存錯誤並標為 `failed`，等待下一次 Raw 變動或重啟重試。
+
 ### 關卡 G1
 
 - 計數斷言全部通過（81 / 81 / 228）。
@@ -662,17 +858,17 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T2.1 | `documents` / `document_versions` / `document_chunks` 建表 | G1 | schema | 文件修訂保留歷史，不覆蓋 |
-| T2.2 | `terms` / `term_aliases` / `term_translations` / `term_relations` / `term_evidence` 建表 | G1 | schema | |
-| T2.3 | Markdown 解析與切段器（純函式，無 DB 依賴） | G1 | `src/db/import/markdown.ts` | 依 `#`~`######` 建 `heading_path`；不在定義、條件、列表中間硬切；表格保留欄列關係；code block 保留原文與語言標記；每個 chunk 可回鏈標題位置 |
-| T2.10 | `version_scopes` / `content_version_scopes` 建表與標註工具 | G1 | schema + 工具 | 未知版本標為 `unknown`，不得假裝適用全版本 |
+| T2.1 | `documents` / `document_versions` / `document_chunks` / `source_references` 建表 | G1 | schema | 文件修訂保留歷史，不覆蓋；每個可引用 Chunk 建立永久、不重用的 `SRC-00000001` |
+| T2.2 | `terms` / `term_aliases` / `term_translations` / `term_relations` / `term_evidence` / `machine_terms` 建表 | G1 | schema | |
+| T2.3 | Markdown 解析與切段器（純函式，無 DB 依賴） | G1 | `src/db/import/markdown.ts` | 依 `#`~`######` 建 `heading_path`；Chunk 上限 800 中文字元，只在段落邊界切分；不在定義、條件、列表中間硬切；表格保留欄列關係；code block 保留原文與語言標記；每個 chunk 可回鏈標題位置 |
+| T2.10 | `version_scopes` / `content_version_scopes` 建表與標註工具 | G1 | schema + 工具 | 版本以 major/minor/patch 三段整數比較；未知版本標為 `unknown`，不得假裝適用全版本 |
 
 ### 批次 2-B（各來源匯入器，互相獨立可同時開工）
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T2.4 | `gtmc-database/` 23 檔分流匯入：先建 raw snapshot，再依 T0.5 排除 404、空白、導航、僅提綱；部分完成文件只保留完成段落，失效資源只標記；合格內容才建立 `documents` + `document_chunks`，並以 AI 產生內容品質、版本與 Claim 候選 | T1.2, T2.1, T2.3, T0.5 | 匯入器、AI 任務與品質報告 | 23 檔全數有 raw snapshot、確定性分類與 AI 候選；完成 chunk 可回溯檔案與標題路徑；`stub` 不進索引，`broken_link` 正文保留並帶旗標 |
-| T2.5 | `dictionary/` 匯入：`entries/*.json` 的 `definition`、來源 URL、審核狀態與引用關係；`config.json` 的 `summary`；`zh-translations.json` 的中文翻譯 | T2.2 | 匯入器 | 112 詞條全數匯入；英文原始定義、中文定義與來源連結皆可追溯；僅既有 `APPROVED` 詞條標為 `approved` |
+| T2.4 | 通用文件匯入器：處理 Raw 中 Markdown、Wiki 匯出 HTML 與純文字教學；先建 raw snapshot，再依 T0.5 處理 404、空白、導航、僅提綱、部分完成段落與失效資源；合格內容才建立 `documents` + `document_chunks`，並以 AI 產生內容品質、版本與 Claim 候選 | T1.2, T2.1, T2.3, T0.5 | 匯入器、AI 任務與品質報告 | 每份文件均有 raw snapshot、確定性分類與 AI 候選；完成 chunk 可回溯檔案與標題路徑；`stub` 不進索引，`broken_link` 正文保留並帶旗標；GTMC 僅作首批輸入驗證 |
+| T2.5 | `dictionary/` 匯入：`entries/*.json` 的 `definition`、來源 URL、審核狀態與引用關係；`config.json` 的 `summary`；`zh-translations.json` 的中文翻譯 | T2.2 | 匯入器 | 112 詞條全數匯入；英文原始定義、中文定義與來源連結皆可追溯；僅既有 `APPROVED` 詞條標為 `approved`；不自動指定 canonical definition |
 | T2.6 | 術語清理候選：`Dictionary.txt` 可直接作翻譯候選；CSV 中短術語必須先經 AI 正規化為 `extraction_candidates`，辨識拼寫錯誤、同義詞、雙向別名及多概念混合記錄 | T1.2, T2.2, T0.5 | 匯入器與候選清單 | 不覆蓋 T2.5 正式翻譯；CSV 不直接寫入術語表；`Flitered`、`Paraller Codes`、`Singal Strength` 等只作待審更正候選；多概念記錄不作單一術語入庫 |
 | T2.7 | `TechMC Glossary.csv` 欄位重新映射與匯入（修正缺陷 D1） | T2.2 | 匯入器 | 415 列正確映射至 `Short Form` / `Full Form (English)` / `Chinese` / `Description (Chinese)` 等欄；處理 BOM；非空條目數 > 0 且與人工抽樣一致；授權待確認前強制 `visibility=internal` |
 | T2.8 | `database.md` 215 行匯入為 `pending` 文件 | T2.1, T2.3 | 匯入器 | 作為 `database.csv` 的追溯來源，不直接成為 Claim |
@@ -687,6 +883,261 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 
 - 中文、英文、縮寫三種輸入可命中同一概念並列出來源。
 - 缺陷 D1 已消除，詞彙表對回答有實際貢獻。
+
+### Phase 2 實作規格
+
+#### T2.3 通用 parser 與依賴鎖定
+
+主線新增並由 `package-lock.json` 鎖定下列精確版本：
+
+```text
+better-sqlite3@12.4.1
+sqlite-vec@0.1.9
+unified@11.0.5
+remark-parse@11.0.0
+rehype-parse@9.0.1
+rehype-remark@10.0.1
+remark-stringify@11.0.0
+```
+
+`better-sqlite3@13` 需要 Node 22，不可使用；本專案 Node 20 使用 `better-sqlite3@12.4.1`。`sqlite-vec@0.1.9` 使用其 Windows x64 optional binary。安裝後必須在 Windows Node 20 執行 `npm run build`、開啟測試 DB、載入 sqlite-vec、執行 `SELECT vec_version()` 與一次 384 維 KNN 查詢；任一失敗則不得進入資料遷移。
+
+unified、remark、rehype 都是 ESM。由於本專案編譯為 CommonJS，`src/services/documentParser.ts` 必須使用與 `embeddings.ts` 相同的原生動態 import 模式：
+
+```ts
+function importEsm<T>(specifier: string): Promise<T> {
+  return new Function('specifier', 'return import(specifier)')(specifier) as Promise<T>
+}
+```
+
+禁止直接 `await import('unified')`，因 TypeScript CommonJS 編譯可能降級成 `require()`。parser module 只在首次文件匯入時動態載入，並以 process 內 Promise 單例快取。
+
+支援格式與固定行為：
+
+| 格式 | 判定副檔名／MIME | AST pipeline | 保留內容 |
+| --- | --- | --- | --- |
+| Markdown | `.md`, `.markdown`, `text/markdown` | `unified + remark-parse` | heading、段落、列表、blockquote、table、code、link label/url、image alt/src |
+| HTML/Wiki 匯出 | `.html`, `.htm`, `text/html` | `unified + rehype-parse + rehype-remark` | article/main 優先；heading、段落、列表、table、pre/code、link label/url、image alt/src |
+| 純文字 | `.txt`, `text/plain` | 行與空白段落 parser | 非空段落與換行列表 |
+
+HTML parser 不執行任何 HTML、JavaScript 或外部資源。解析前移除 `script`、`style`、`noscript`、`iframe`、`form`、`nav`、`footer`、`header`、`aside`、`svg`；優先選取第一個 `article`，否則 `main`，再否則 `body`。table 轉為含欄名的 Markdown 表格，`pre/code` 保留語言 class 與原文字串，圖片僅保留 alt/src，不下載圖片。所有原始 HTML 仍只存在 Raw 檔案。
+
+parser 的輸出統一為：
+
+```text
+ParsedDocument {
+  title: string
+  blocks: Array<{ type, headingPath, content, links, images, sourceOffset }>
+  qualityFlags: string[]
+}
+```
+
+不支援的副檔名建立 `unsupported_format` 旗標、不建立 AI job 或 Chunk。Markdown/HTML parser 失敗建立 `parse_error` 旗標並保留 Raw；不得回退成將整份檔案無結構交給 AI。
+
+#### T2.10 版本範圍 DDL
+
+Migration `0003_versions.sql`：
+
+```sql
+CREATE TABLE version_scopes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  edition TEXT NOT NULL CHECK (edition IN ('java', 'bedrock', 'unknown')),
+  min_major INTEGER,
+  min_minor INTEGER,
+  min_patch INTEGER,
+  max_major INTEGER,
+  max_minor INTEGER,
+  max_patch INTEGER,
+  loader TEXT NOT NULL DEFAULT 'unknown',
+  server_implementation TEXT NOT NULL DEFAULT 'unknown',
+  raw_label TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  CHECK (
+    (min_major IS NULL AND min_minor IS NULL AND min_patch IS NULL) OR
+    (min_major IS NOT NULL AND min_minor IS NOT NULL AND min_patch IS NOT NULL)
+  ),
+  CHECK (
+    (max_major IS NULL AND max_minor IS NULL AND max_patch IS NULL) OR
+    (max_major IS NOT NULL AND max_minor IS NOT NULL AND max_patch IS NOT NULL)
+  )
+);
+
+CREATE TABLE content_version_scopes (
+  content_type TEXT NOT NULL CHECK (content_type IN ('document', 'chunk', 'term_definition', 'knowledge', 'claim', 'machine')),
+  content_id INTEGER NOT NULL,
+  version_scope_id INTEGER NOT NULL REFERENCES version_scopes(id) ON DELETE CASCADE,
+  PRIMARY KEY (content_type, content_id, version_scope_id)
+) WITHOUT ROWID;
+
+CREATE INDEX content_version_scopes_lookup
+  ON content_version_scopes(content_type, content_id);
+```
+
+版本比較採 tuple lexicographic 比較 `(major, minor, patch)`。`1.20+` 寫入 min `(1,20,0)`、max 為 NULL；精確 `1.21.1` 的 min/max 均為 `(1,21,1)`。無法可靠辨識時 `edition='unknown'`、所有版本欄位 NULL，並保留原文於 `raw_label`；未知版本不得被視為相容，而是在檢索時降權並標示限制。
+
+#### T2.1 文件、Chunk 與來源 ID DDL
+
+Migration `0004_documents.sql`：
+
+```sql
+CREATE TABLE documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  raw_asset_id INTEGER NOT NULL REFERENCES raw_assets(id),
+  title TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'unknown',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  content_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (source_id, raw_asset_id)
+);
+
+CREATE TABLE document_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  raw_asset_id INTEGER NOT NULL REFERENCES raw_assets(id),
+  content_hash TEXT NOT NULL,
+  imported_at TEXT NOT NULL,
+  UNIQUE (document_id, content_hash)
+);
+
+CREATE TABLE document_chunks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  heading_path TEXT NOT NULL,
+  chunk_index INTEGER NOT NULL CHECK (chunk_index >= 0),
+  content TEXT NOT NULL,
+  char_count INTEGER NOT NULL CHECK (char_count > 0),
+  is_oversized INTEGER NOT NULL DEFAULT 0 CHECK (is_oversized IN (0, 1)),
+  content_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (document_id, chunk_index, content_hash),
+  CHECK (is_oversized = 1 OR char_count <= 800)
+);
+
+CREATE TABLE source_references (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id TEXT UNIQUE,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+  document_chunk_id INTEGER REFERENCES document_chunks(id) ON DELETE CASCADE,
+  display_title TEXT NOT NULL,
+  creator TEXT,
+  source_url TEXT,
+  source_anchor TEXT NOT NULL DEFAULT '',
+  visibility TEXT NOT NULL CHECK (visibility IN ('internal', 'public')),
+  modification_note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  CHECK (document_id IS NOT NULL OR document_chunk_id IS NOT NULL)
+);
+
+CREATE TRIGGER source_references_assign_public_id
+AFTER INSERT ON source_references
+FOR EACH ROW WHEN NEW.public_id IS NULL
+BEGIN
+  UPDATE source_references
+  SET public_id = printf('SRC-%08d', NEW.id)
+  WHERE id = NEW.id;
+END;
+
+CREATE UNIQUE INDEX document_chunks_position
+  ON document_chunks(document_id, chunk_index);
+CREATE INDEX source_references_chunk ON source_references(document_chunk_id);
+```
+
+每個可引用 `document_chunk` 必須恰有一筆 `source_references`。`SRC-*` 一經生成不可修改、不可重用，即使 Chunk 被 deprecated 也必須保留其 reference；新版本 Chunk 取得新 ID。只有 `status='approved'` 且 source/reference `visibility='public'` 才可在一般回答來源清單中顯示完整來源資訊。
+
+Chunk 演算法必須：先依 heading 建立完整 `heading_path`；再將正文分成段落、列表與 code block 原子區塊；累加至不超過 800 Unicode code points。單一原子區塊超過 800 時不截斷，改以 `oversized_block` 品質旗標保留完整內容，並排除向量化直到人工決定處理方式。
+
+#### T2.2 術語與人工 canonical definition DDL
+
+Migration `0005_terms.sql`：
+
+```sql
+CREATE TABLE terms (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  canonical_name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'unknown',
+  canonical_definition_id INTEGER,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (canonical_name)
+);
+
+CREATE TABLE term_aliases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  alias TEXT NOT NULL,
+  normalized_alias TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'unknown',
+  alias_type TEXT NOT NULL CHECK (alias_type IN ('canonical', 'abbreviation', 'translation', 'community', 'legacy', 'possible_typo')),
+  source_id INTEGER REFERENCES sources(id),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  UNIQUE (term_id, normalized_alias, language)
+);
+
+CREATE INDEX term_aliases_lookup ON term_aliases(normalized_alias, status);
+
+CREATE TABLE term_definitions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  language TEXT NOT NULL DEFAULT 'unknown',
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (term_id, source_id, language, content_hash)
+);
+
+CREATE TABLE term_relations (
+  from_term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  relation_type TEXT NOT NULL CHECK (relation_type IN ('related_to', 'uses', 'not_equivalent_to', 'supersedes')),
+  to_term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  PRIMARY KEY (from_term_id, relation_type, to_term_id),
+  CHECK (from_term_id <> to_term_id)
+) WITHOUT ROWID;
+
+CREATE TABLE term_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  document_chunk_id INTEGER REFERENCES document_chunks(id) ON DELETE CASCADE,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  evidence_note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX term_evidence_term ON term_evidence(term_id);
+
+CREATE TABLE machine_terms (
+  machine_id INTEGER NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+  term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  PRIMARY KEY (machine_id, term_id)
+) WITHOUT ROWID;
+```
+
+Migration 最後加入 `terms.canonical_definition_id` 外鍵：
+
+```sql
+CREATE TRIGGER terms_validate_canonical_definition_insert
+BEFORE UPDATE OF canonical_definition_id ON terms
+FOR EACH ROW WHEN NEW.canonical_definition_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM term_definitions
+  WHERE id = NEW.canonical_definition_id
+    AND term_id = NEW.id
+    AND status = 'approved'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'canonical definition must be an approved definition of this term');
+END;
+```
+
+dictionary、Glossary、GTMC 與社群資料皆只能新增 `term_definitions` 候選；不得按來源自動覆蓋 `canonical_definition_id`。知識審核者在 `/review` 選擇一筆已核准定義後，才更新 canonical definition。
 
 ---
 
@@ -707,7 +1158,7 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T3.8 | 審核模式切換口：集中設定 `approved_only` / `include_pending`，並在檢索結果保留資料狀態 | T3.1 | 檢索設定與狀態標記 | 預設 `approved_only`；只有管理者可切換；`include_pending` 僅對明確 `QQ_GROUP_WHITELIST` 群組生效且回答必帶待審警示 |
-| T3.4 | `database.csv` AI 整理管線：以 RFC 4180 讀取 151 筆邏輯記錄，全部先進 `raw_assets`；GTMC 副本建立 provenance，其他內容由 AI 產生結構化候選，再 materialize 合格候選為 `pending` | T1.2, T2.4, T2.6, T3.1, T0.5 | 匯入器、AI 任務與清理報告 | 19 份 GTMC 副本只連結原 GTMC document；CSV 原文零筆直接進正式表；每個可試用項目皆有 `ai_run`、原始記錄回鏈、品質旗標與候選理由；`include_pending` 僅使用 materialize 後的 pending 項目 |
+| T3.4 | 歷史 `database.csv` 救援遷移 | 不屬於主線 | 獨立 session／分支處理 | 歷史 CSV 的格式修復、去重與 AI 分流不阻擋通用文件攝取能力，另立完整遷移規格與 Fixture |
 
 ### 批次 3-C（寫入路徑改造，可同時開工）
 
@@ -723,6 +1174,194 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 - 審核入口可在所有學習寫入路徑啟用前使用。
 - `approved_only` 與 `include_pending` 均經實際問答驗證；後者的待審警示不可遺漏。
 - `/learn` 與自動學習皆已脫離 CSV。
+
+### Phase 3 實作規格
+
+#### T3.1/T3.2 知識、Claim 與修訂 DDL
+
+Migration `0006_knowledge_claims.sql`：
+
+```sql
+CREATE TABLE knowledge_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id INTEGER NOT NULL REFERENCES sources(id),
+  raw_asset_id INTEGER REFERENCES raw_assets(id),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('community_note', 'tutorial', 'design', 'mechanism')),
+  confidence TEXT NOT NULL CHECK (confidence IN ('documented', 'expert_reviewed', 'measured', 'inferred', 'unverified')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  supersedes_knowledge_id INTEGER REFERENCES knowledge_entries(id),
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX knowledge_entries_active_hash
+  ON knowledge_entries(content_hash)
+  WHERE status IN ('pending', 'approved');
+
+CREATE TABLE knowledge_terms (
+  knowledge_id INTEGER NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+  term_id INTEGER NOT NULL REFERENCES terms(id) ON DELETE CASCADE,
+  PRIMARY KEY (knowledge_id, term_id)
+) WITHOUT ROWID;
+
+CREATE TABLE claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  statement TEXT NOT NULL,
+  statement_hash TEXT NOT NULL,
+  confidence_level TEXT NOT NULL CHECK (confidence_level IN ('documented', 'expert_reviewed', 'measured', 'inferred', 'unverified')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  supersedes_claim_id INTEGER REFERENCES claims(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX claims_active_hash
+  ON claims(statement_hash)
+  WHERE status IN ('pending', 'approved');
+
+CREATE TABLE claim_conditions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  condition_type TEXT NOT NULL CHECK (condition_type IN ('version', 'edition', 'loader', 'server', 'prerequisite', 'scope')),
+  content TEXT NOT NULL
+);
+
+CREATE TABLE claim_exceptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  content TEXT NOT NULL
+);
+
+CREATE TABLE claim_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  claim_id INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  evidence_type TEXT NOT NULL CHECK (evidence_type IN ('document_chunk', 'term_definition', 'experiment')),
+  evidence_id INTEGER NOT NULL,
+  stance TEXT NOT NULL CHECK (stance IN ('supports', 'contradicts')),
+  note TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX claim_evidence_claim ON claim_evidence(claim_id, stance);
+CREATE INDEX claims_status ON claims(status);
+CREATE INDEX knowledge_entries_status ON knowledge_entries(status);
+```
+
+核准 Claim 的 service transaction 必須驗證至少存在一筆 `stance='supports'` 的可追溯 evidence；對 `document_chunk` 與 `term_definition`，目標必須是 `approved`；`experiment` 則必須是已完成且可重現的實驗。若存在已知反證，必須另存 `contradicts` evidence 或 exception，但反證不自動阻擋核准，由審核者決定 `approved` 或 `disputed`。
+
+修訂不可 `UPDATE` 覆蓋既有 approved 內容。修訂操作必須在同一 transaction 中：建立新的 pending 版本、設定新版本的 `supersedes_*_id`、將舊版改為 `deprecated`、寫入 review 理由。所有檢索 SQL 必須固定包含 `status = 'approved'`，因此 AI 不會讀取 deprecated、rejected、disputed 或 legacy_review 版本。
+
+#### 語意重複合併
+
+`/learn`、自動學習與 AI materialize 前，先計算候選與 active knowledge／Claim 的向量相似度。完全相同 `content_hash` 或 `statement_hash` 必須直接合併來源與審計紀錄，不建立新內容。語意相似超過核准門檻時自動合併到既有 active 項目：新增 Raw、AI run、候選與來源關係，但不覆蓋既有正文、狀態、作者或 revision 鏈。合併決策必須記錄候選 ID、目標 ID、分數、模型與閾值。
+
+自動合併門檻固定為 knowledge `0.95`、Claim `0.97`，餘弦分數使用目前 multilingual MiniLM 的正規化 embedding 計算。每次合併必須保存候選 ID、目標 ID、`model_name`、`index_version`、門檻與實際分數；未達門檻的候選才建立新的 pending 項目。第一期候選 top-k 固定為 5，僅在這 5 筆 active 項目中判定是否合併。
+
+#### T3.3 審核、回饋與 interaction DDL
+
+Migration `0010_review_feedback.sql`：
+
+```sql
+CREATE TABLE reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_type TEXT NOT NULL CHECK (target_type IN ('knowledge', 'claim', 'term', 'term_definition', 'experiment')),
+  target_id INTEGER NOT NULL,
+  reviewer_id TEXT NOT NULL,
+  decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected', 'deprecated', 'disputed')),
+  comment TEXT NOT NULL DEFAULT '',
+  before_json TEXT NOT NULL DEFAULT '{}',
+  after_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX reviews_target ON reviews(target_type, target_id, created_at);
+
+CREATE TABLE answer_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  answer_message_id TEXT NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  evidence_snapshot_json TEXT NOT NULL,
+  reviewer_id TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK (verdict IN ('correct', 'incorrect', 'partial', 'amend')),
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('open', 'awaiting_items', 'completed')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE answer_feedback_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  feedback_id INTEGER NOT NULL REFERENCES answer_feedback(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+  statement TEXT NOT NULL,
+  verdict TEXT CHECK (verdict IN ('correct', 'incorrect')),
+  reason TEXT NOT NULL DEFAULT '',
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  UNIQUE (feedback_id, ordinal)
+);
+
+CREATE TABLE interaction_receipts (
+  interaction_id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('received', 'completed', 'failed')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE knowledge_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE knowledge_setting_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  old_value TEXT NOT NULL,
+  new_value TEXT NOT NULL,
+  changed_by TEXT NOT NULL,
+  changed_at TEXT NOT NULL
+);
+```
+
+interaction handler 必須先以 QQ `interaction.id` 寫入 `interaction_receipts`；已存在且 completed 的 interaction 直接返回成功，不重複改變資料。處理失敗時記錄 failed，允許 QQ 重送後安全重試。所有 review/judge DB 寫入均使用 transaction。
+
+#### T3.5 審核互動
+
+`/review list` 顯示 pending／legacy_review 清單；`/review <id>` 顯示標題、正文、Raw 來源摘要、品質旗標、AI 理由、版本條件、術語關聯與證據。審核者可使用 `approve`、`reject`、`edit` 按鈕；手機文字回退格式固定為 `review:<action>:<id>`。
+
+`edit` 不得原地覆蓋原候選。Bot 以多輪表單或文字指令收集 title、content、conditions、term IDs、證據修正，建立新的 pending revision，將原候選標記 `superseded`，再由審核者核准。所有 edit 必須記錄修改前後 JSON、操作人與時間。
+
+#### T3.9 回答評判互動
+
+`/judge` 必須引用一則 Bot 回覆。命令格式：
+
+```text
+/judge correct [原因]
+/judge incorrect <原因>
+/judge partial
+/judge amend <修改建議>
+```
+
+`partial` 使用 Flash 將回答拆成原子知識點，建立 `answer_feedback_items`；每項提供「正確」與「錯誤」QQ 按鈕。文字回退格式固定為 `judge-item:<feedbackId>:<ordinal>:correct` 或 `judge-item:<feedbackId>:<ordinal>:incorrect`。所有項目均完成判定後，Bot 將 feedback 標為 completed；錯誤項目建立 `conflicting_fact` 或修訂 candidate，正確項目只增加審核訊號，不自動升格資料。
+
+鍵盤 callback payload 固定如下，router 必須在既有投稿 callback 前先依 prefix 分派到知識 interaction handler：
+
+```text
+review:approve:<candidateId>
+review:reject:<candidateId>
+review:edit:<candidateId>
+judge-item:<feedbackId>:<ordinal>:correct
+judge-item:<feedbackId>:<ordinal>:incorrect
+```
+
+按鈕 `id` 使用相同 payload 的冒號改底線形式；所有按鈕在 QQ 端允許點擊，但服務端必須重新檢查 `KNOWLEDGE_REVIEWER_USERS`／`KNOWLEDGE_REVIEWER_GROUPS` 或 `KNOWLEDGE_JUDGE_USERS`／`KNOWLEDGE_JUDGE_GROUPS`。不具權限者收到「沒有知識審核權限」或「沒有回答評判權限」，且不得產生 receipt 的 completed 動作。
 
 ---
 
@@ -756,6 +1395,105 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 - 評測題庫重跑，記錄命中證據正確性與版本正確性。
 - `/ask` 延遲不再隨知識庫大小線性增長。
 
+### Phase 4 實作規格
+
+#### T4.1 FTS5
+
+Migration `0007_fts.sql` 建立兩個獨立外部內容 FTS5 表：
+
+```sql
+CREATE TABLE terms_fts_content (
+  term_id INTEGER PRIMARY KEY REFERENCES terms(id) ON DELETE CASCADE,
+  canonical_name TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '',
+  definitions TEXT NOT NULL DEFAULT ''
+);
+
+CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+  heading_path,
+  content,
+  content='document_chunks',
+  content_rowid='id',
+  tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE VIRTUAL TABLE terms_fts USING fts5(
+  canonical_name,
+  aliases,
+  definitions,
+  content='terms_fts_content',
+  content_rowid='term_id',
+  tokenize='unicode61 remove_diacritics 2'
+);
+```
+
+`document_chunks_fts` 只同步 `approved` 且非 oversized 的 Chunk；Chunk 改為 deprecated/rejected 時須從 FTS 移除。`terms_fts_content` 是普通表，將一個 term 的 canonical name、已核准 aliases 與已核准 definitions 聚合為單列；定義或 alias 狀態改變時重建該 term 單列。禁止將 pending 或 Raw 正文寫入任一 FTS 表。
+
+#### T4.2 sqlite-vec
+
+`sqlite-vec` 必須固定 NPM 與 native extension 的精確版本，啟動時載入 extension 並驗證 `SELECT vec_version()` 等於鎖定版本；無法載入時 Bot 可繼續使用 FTS，但必須停用向量檢索並記錄降級原因。
+
+Migration `0008_vectors.sql`：
+
+```sql
+CREATE TABLE vector_index_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_type TEXT NOT NULL CHECK (target_type IN ('document_chunk', 'claim')),
+  model_name TEXT NOT NULL,
+  dimensions INTEGER NOT NULL CHECK (dimensions = 384),
+  index_version TEXT NOT NULL,
+  extension_version TEXT NOT NULL,
+  is_active INTEGER NOT NULL CHECK (is_active IN (0, 1)),
+  created_at TEXT NOT NULL,
+  UNIQUE (target_type, index_version)
+);
+
+CREATE VIRTUAL TABLE document_chunk_vectors USING vec0(
+  chunk_id INTEGER PRIMARY KEY,
+  embedding FLOAT[384],
+  index_version TEXT,
+  status TEXT
+);
+
+CREATE VIRTUAL TABLE claim_vectors USING vec0(
+  claim_id INTEGER PRIMARY KEY,
+  embedding FLOAT[384],
+  index_version TEXT,
+  status TEXT
+);
+```
+
+向量輸入文字固定為：Chunk 使用 `heading_path + "\n" + content`；Claim 使用 `statement + "\n" + 所有 conditions`。embedding 必須使用目前 `Xenova/paraphrase-multilingual-MiniLM-L12-v2` 的 384 維、mean pooling、L2 normalized float32 輸出。`index_version` 至少包含模型名稱、模型檔案版本與輸入組裝版本；內容雜湊或 index version 改變時，只更新受影響 row。
+
+兩個 `vec0` 表不得混用 row id、不得互相查詢或合併向量分數；Chunk 是原始證據，Claim 是審核結論。只有 approved、非 deprecated 項目可被寫入向量表。
+
+#### T4.3/T4.4 Query Planner 與 Hybrid Retrieval
+
+Query Planner 的確定性輸出 schema：
+
+```text
+intent: definition | mechanism | comparison | troubleshooting | recommendation | performance
+edition: java | bedrock | unknown
+version: { major, minor, patch } | null
+environment: { loader, serverImplementation } | null
+termIds: integer[]
+missingConditions: string[]
+```
+
+先使用 aliases 與規則辨識版本、版本格式與已知 term；Flash 只可補充不確定的 intent／術語候選，不能改寫已解析的版本或繞過 metadata 過濾。
+
+每次檢索固定執行：術語 FTS top 10、文件 FTS top 10、Chunk 向量 top 10、Claim 向量 top 10。文件 FTS 與 Chunk 向量各自以 RRF 合併，常數 `k = 60`；Claim 向量獨立保留。之後依版本、edition、環境、狀態與可信度重排，最後最多輸出 8 筆證據到 Evidence Workspace。
+
+`approved_only` 僅查 approved。`include_pending` 時 pending 結果在 RRF 後乘以 `0.8`，並在 Evidence Workspace 與最終回答保留 pending 標記；當 `QQ_GROUP_WHITELIST` 為空時，一律不查 pending。
+
+RRF 分數固定為：
+
+```text
+rrf_score = sum(1 / (60 + rank_i))
+```
+
+其中 `rank_i` 從 1 起算。版本不相容項目直接排除；版本未知項目不排除但於最終重排序乘以 `0.7`，並加入限制提示。
+
 ---
 
 ## Phase 5：證據式回答
@@ -775,8 +1513,22 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T5.4 | 衝突與不確定性處理 | T5.1, T5.2 | 規則實作 | 兩份資料衝突時可指出版本與條件 |
-| T5.3a | 來源 ID 對照表：由 `source_references` 產生本機 `source-id-map.json`，記錄 `SRC-*`、來源種類、原始路徑／URL、文件標題、段落路徑、內容雜湊與 visibility；Bot 以固定 URL 連至來源 ID | T1.2, T5.3 | 本地對照表 schema 與匯出器 | 每個可引用 Chunk 有永久、不重用的 `SRC-00000001`；對照表不含 Raw 正文、QQ ID、群組 ID 或附件內容；網站完全獨立，可自行抓取完整來源並按 ID 對應；歷史 CSV 與社群內容僅在 OpenST 公開條款 URL 已設定後輸出整理內容和匿名來源 |
 | T5.5 | 錯誤回報入口接回待審區 | T5.3, T3.9 | 使用者入口 | 回報產生新待審項目，不覆蓋原知識 |
+
+### Phase 5 實作規格
+
+#### Evidence Workspace 與回答引用
+
+Evidence Workspace 為每次 `/ask` 的暫時物件，不寫入知識表；必須包含 `question`、`query_plan`、`approved_evidence`、`pending_evidence`、`contradicting_evidence`、`constraints`、`missing_conditions`、`retrieval_trace`。`retrieval_trace` 記錄每筆結果的索引來源、原始 rank、RRF 分數、metadata 調整與最終 rank，供 `/judge` snapshot 使用。
+
+Pro 產生回答時，證據以 `[SRC-00000001]` 格式插入相關敘述後。回答結尾固定追加：
+
+```text
+## 來源
+- [SRC-00000001] 作品／文章名稱 - 作者或署名
+```
+
+只列出實際用於回答的最多 8 個 approved evidence。pending evidence 在 `include_pending` 模式下可列出，但必須在 ID 後加上「待審」；正文第一次使用 pending 時須明確說明「以下部分依據待審資料」。內部資料庫 ID、Raw 路徑、QQ ID 與群組 ID 不得出現在回答。
 
 ### 關卡 G5
 
@@ -793,6 +1545,66 @@ T1.2b 僅搬移原始資料與更新暫時相容讀取路徑；不得在此 Trac
 | T6.1 | `experiments` / `experiment_measurements` / `experiment_evidence` 建表 | G5 | schema | |
 | T6.2 | 人工匯入工具 | T6.1 | 匯入器 | 可記錄條件、步驟、測量值與樣本數 |
 | T6.3 | Claim ↔ Experiment 連結 | T6.2, T3.2 | 關聯實作 | 可重現實測能連到 Claim |
+
+### Phase 6 實作規格
+
+Migration `0009_experiments.sql`：
+
+```sql
+CREATE TABLE experiments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  raw_asset_id INTEGER REFERENCES raw_assets(id),
+  title TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'deprecated', 'disputed', 'legacy_review')),
+  version_scope_id INTEGER REFERENCES version_scopes(id),
+  setup_json TEXT NOT NULL,
+  procedure TEXT NOT NULL,
+  reproducibility_notes TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE experiment_measurements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+  metric TEXT NOT NULL,
+  value REAL NOT NULL,
+  unit TEXT NOT NULL,
+  sample_count INTEGER NOT NULL CHECK (sample_count > 0),
+  notes TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE experiment_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  experiment_id INTEGER NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+  evidence_type TEXT NOT NULL CHECK (evidence_type IN ('raw_asset', 'document_chunk', 'external_url')),
+  evidence_id INTEGER,
+  url TEXT,
+  note TEXT NOT NULL DEFAULT '',
+  CHECK (evidence_id IS NOT NULL OR url IS NOT NULL)
+);
+```
+
+Raw JSON 實驗檔放於 `public/database/raw/experiments/*.json`，必須符合：
+
+```json
+{
+  "title": "string",
+  "version": { "edition": "java", "major": 1, "minor": 21, "patch": 1 },
+  "environment": { "loader": "vanilla", "serverImplementation": "vanilla" },
+  "setup": { "difficulty": "hard", "simulationDistance": 10 },
+  "procedure": "string",
+  "measurements": [
+    { "metric": "mspt", "value": 12.5, "unit": "ms", "sampleCount": 1200 }
+  ],
+  "evidence": []
+}
+```
+
+QQ 命令以 `/experiment create` 建立相同欄位的 pending 實驗；Bot 以多輪輸入或按鈕收集，最終產生與 Raw JSON 完全相同的內部 payload。兩種入口都須保留來源與建立者，且進入同一審核佇列。
+
+只有 `experiments.status='approved'` 的實驗可被 `claim_evidence.evidence_type='experiment'` 引用。實驗審核需確認版本、環境、步驟、測量指標、樣本數與至少一項 evidence；缺少其中任一項只能維持 pending。
 
 ---
 
@@ -842,7 +1654,6 @@ AI 只負責理解、抽取、比較與表達；資料庫寫入、狀態轉移�
 | JSON/CSV/Markdown 匯入、雜湊去重、版本欄位保存、FTS、sqlite-vec、狀態機、權限與引用渲染 | 不需要 | 不呼叫模型 | 必須可重複、可測試且無模型不確定性 |
 | Markdown 標題切段、表格與程式碼區塊保留 | 不需要 | 不呼叫模型 | 採結構解析，不由 AI 改寫原文 |
 | 已知術語的精確中英別名匹配 | 不需要 | 不呼叫模型 | 以 `term_aliases` 查詢；未知合併才交人工確認 |
-| CSV 遺留資料的分類、正規化、術語合併候選、community note／Claim 草稿 | 需要 | DeepSeek V4 Flash | 151 筆邏輯記錄逐筆輸出結構化 JSON；只寫 `extraction_candidates`，通過規則驗證後才 materialize 為 `pending` |
 | `/learn` 文字、附件與引用內容的標題建議、候選術語、Candidate Claim 草稿 | 需要 | DeepSeek V4 Flash | 背景批次工作；必須輸出結構化 JSON、保留原文與來源、寫入 `pending` |
 | 主動／被動學習中的知識摘要與條件、例外抽取 | 需要 | DeepSeek V4 Flash | 只產生候選；被動學習輸入必含原問題、既有對話、本次補充與附件內容 |
 | 問題意圖分類、版本／平台候選辨識、查詢改寫、術語擴展建議 | 可選 | 先規則，無法判定時用 Flash | Flash 結果只影響檢索召回，不可繞過版本或審核過濾 |
@@ -853,6 +1664,22 @@ AI 只負責理解、抽取、比較與表達；資料庫寫入、狀態轉移�
 | 審核建議、衝突案件摘要 | 可選 | Pro | 僅協助審核者閱讀，不可替代人工 approve/reject 決策 |
 
 DeepSeek V4 Flash 適合高頻、低風險、可由人工覆核的候選產生工作；DeepSeek V4 Pro 用於跨證據推理與面向使用者的複雜回答。兩者共用現有 API；`src/config.ts` 以常數 `DEEPSEEK_MODEL_FLASH = 'deepseek-v4-flash'`、`DEEPSEEK_MODEL_PRO = 'deepseek-v4-pro'` 定義模型 ID。只有 `DEEPSEEK_API_KEY` 讀取環境變數。呼叫策略須集中在 `services/ai.ts`，每次呼叫明確選擇 Flash 或 Pro，業務模組不得自行直連模型 API。
+
+### AI JSON 契約
+
+每個 AI 任務的 prompt 與 JSON Schema 存於 `agent/tasks/<task_type>/`：`system.md`、`schema.json`、`examples/`。`ai_runs.prompt_version` 必須是 system prompt 與 schema 的 SHA-256 前 12 碼。所有 API 請求要求純 JSON；收到 Markdown、非 JSON、缺欄位、額外頂層欄位、錯誤 enum、無效 Raw ID 或內容雜湊不符時，`ai_runs.status='invalid'`、建立 `invalid_ai_output` 品質旗標，且不得建立 candidate。
+
+| task_type | 模型 | 頂層輸出欄位 | 禁止行為 |
+| --- | --- | --- | --- |
+| `document_triage` | Flash | `candidateType`, `normalizedTitle`, `normalizedContent`, `termRefs`, `qualityFlags`, `confidence`, `rationale`, `rawAssetId` | 不得輸出未在輸入提供的來源、版本或事實 |
+| `document_quality` | Flash | `documentOutcome`, `completedHeadings`, `excludedHeadings`, `qualityFlags`, `versionCandidates`, `claimCandidates`, `rationale`, `rawAssetId` | 不得將 stub／導航段落標為 completed |
+| `term_normalize` | Flash | `termCandidates`, `aliasCandidates`, `definitionCandidates`, `possibleTypos`, `rationale` | 不得自定 canonical definition |
+| `claim_extract` | Flash | `claims`, `conditions`, `exceptions`, `evidenceRawIds`, `confidence`, `rationale` | 不得輸出 `approved` 狀態 |
+| `conflict_review` | Pro | `conflicts`, `supportingEvidence`, `contradictingEvidence`, `missingEvidence`, `recommendation`, `rationale` | 不得自行解決衝突或核准 Claim |
+| `answer_split` | Flash | `items`，每項含 `ordinal`, `statement`, `evidenceRefs` | 不得評斷正確性；只拆分原回答已聲稱的內容 |
+| `answer_synthesis` | Pro | 純 Markdown 回答及既有 `SRC-*` 引用 | 不得引用 Evidence Workspace 外的事實或編造 SRC ID |
+
+所有 schema 必須採 JSON Schema Draft 2020-12，設定 `additionalProperties: false`。候選陣列上限 20、單一候選正文上限 1,500 Unicode code points、`confidence` 範圍 0 至 1。AI timeout、重試與 HTTP 錯誤不重送同一 job 超過 3 次；第 3 次失敗後標記 failed，等待 Raw 檔變更或人工建立新 job。
 
 ## 開放問題
 
