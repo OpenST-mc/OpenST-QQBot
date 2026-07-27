@@ -4,6 +4,11 @@
  * Body: { name, author, contact, desc, tags, downloadUrl, infoJson }
  *
  * 不处理文件上传，文件已由前端直接 POST 到 Worker
+ *
+ * 令牌格式常量（TOKEN_*_HEX_LEN、TOKEN_TTL_MS）必须与 src/upload/server.ts、
+ * upload-frontend/api/validate.js 中的同名常量保持一致——三处分属不同部署环境
+ * （bot 进程 / Vercel Serverless Function），无法共享同一份源码，修改任一处时
+ * 必须同步修改另外两处，否则会因为长度或有效期对不上导致验证失败。
  */
 const crypto = require('crypto');
 const axios = require('axios');
@@ -29,10 +34,11 @@ function deriveKey(secret) {
 }
 
 function verifyToken(token, secret) {
-  if (!token || token.length !== 28) return false;
-  var payload = token.slice(0, 20);
-  var providedHmac = token.slice(20, 28);
-  var ts = parseInt(payload.slice(0, 11), 16);
+  if (!secret) return false;
+  if (!token || token.length !== TOKEN_TOTAL_LEN) return false;
+  var payload = token.slice(0, TOKEN_PAYLOAD_LEN);
+  var providedHmac = token.slice(TOKEN_PAYLOAD_LEN, TOKEN_TOTAL_LEN);
+  var ts = parseInt(payload.slice(0, TOKEN_TIMESTAMP_HEX_LEN), 16);
   if (isNaN(ts)) return false;
   if (Date.now() - ts > TOKEN_TTL_MS) return false;
 
@@ -40,7 +46,7 @@ function verifyToken(token, secret) {
     .createHmac('sha256', secret)
     .update(payload)
     .digest('hex')
-    .slice(0, 8);
+    .slice(0, TOKEN_HMAC_HEX_LEN);
   return providedHmac === expected;
 }
 
@@ -143,5 +149,13 @@ async function handler(req, res) {
     res.status(500).json({ error: 'GitHub Issue 创建失败' });
   }
 }
+
+// 挂载到导出函数上以便单元测试直接调用，不改变默认导出的调用方式
+handler.verifyToken = verifyToken;
+handler.TOKEN_TOTAL_LEN = TOKEN_TOTAL_LEN;
+handler.TOKEN_PAYLOAD_LEN = TOKEN_PAYLOAD_LEN;
+handler.TOKEN_TIMESTAMP_HEX_LEN = TOKEN_TIMESTAMP_HEX_LEN;
+handler.TOKEN_HMAC_HEX_LEN = TOKEN_HMAC_HEX_LEN;
+handler.TOKEN_TTL_MS = TOKEN_TTL_MS;
 
 module.exports = handler;

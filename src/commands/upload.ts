@@ -3,7 +3,7 @@
 // URL: https://vercel.app/?t=<token>&g=<enc_gh>&w=<worker_url>
 import { QqMessageEvent, sendMessage } from '../bot/adapter'
 import { generateToken, encryptGhToken } from '../upload/server'
-import { UPLOAD_FRONTEND_URL, WORKER_URL } from '../config'
+import { UPLOAD_FRONTEND_URL, WORKER_URL, UPLOAD_TOKEN_EXPIRY_MS } from '../config'
 
 export async function handleUpload(
   event: QqMessageEvent,
@@ -28,9 +28,10 @@ export async function handleUpload(
       `${UPLOAD_FRONTEND_URL}?t=${encodeURIComponent(token)}` +
       `&g=${encodeURIComponent(encGh)}` +
       `&w=${encodeURIComponent(WORKER_URL)}`
+    const expiryMinutes = Math.round(UPLOAD_TOKEN_EXPIRY_MS / 60000)
     await sendMessage({
       content:
-        '点击以下链接进入上传页面（30 分钟内有效）:\n' + uploadUrl,
+        `点击以下链接进入上传页面（${expiryMinutes} 分钟内有效）:\n` + uploadUrl,
       sourceType: event.sourceType,
       groupOpenid: event.groupOpenid,
       userOpenid: event.author.id,
