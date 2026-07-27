@@ -62,6 +62,8 @@ QQ_LEARN_WHITELIST=user_openid_1,group_id_1  # /learn-only whitelist
 # Upload
 UPLOAD_FRONTEND_URL=https://your-upload-frontend.vercel.app
 WORKER_URL=https://api.openstmc.com           # upload relay API (default)
+UPLOAD_SECRET=                                # 32 random bytes, shared with Vercel
+# Vercel also requires GITHUB_TOKEN, UPLOAD_SECRET, and WORKER_URL
 
 # Web Search (default: DuckDuckGo, free)
 SEARCH_ENABLED=true                           # global switch

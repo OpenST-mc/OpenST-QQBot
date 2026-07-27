@@ -1,8 +1,8 @@
 // /upload 命令处理器
 // bot 仅生成参数 URL，不运行上传服务器
-// URL: https://vercel.app/?t=<token>&g=<enc_gh>&w=<worker_url>
+// URL: https://vercel.app/?t=<token>&w=<worker_url>
 import { QqMessageEvent, sendMessage } from '../bot/adapter'
-import { generateToken, encryptGhToken } from '../upload/server'
+import { generateToken } from '../upload/server'
 import { UPLOAD_FRONTEND_URL, WORKER_URL, UPLOAD_TOKEN_EXPIRY_MS } from '../config'
 
 export async function handleUpload(
@@ -23,10 +23,8 @@ export async function handleUpload(
     }
 
     const token = generateToken()
-    const encGh = encryptGhToken()
     const uploadUrl =
       `${UPLOAD_FRONTEND_URL}?t=${encodeURIComponent(token)}` +
-      `&g=${encodeURIComponent(encGh)}` +
       `&w=${encodeURIComponent(WORKER_URL)}`
     const expiryMinutes = Math.round(UPLOAD_TOKEN_EXPIRY_MS / 60000)
     await sendMessage({

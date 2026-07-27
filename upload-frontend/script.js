@@ -1,6 +1,6 @@
 /**
  * OpenST 上传前端脚本
- * 部署在 Vercel，bot 通过 URL 传入 t/g/w 三参数
+ * 部署在 Vercel，bot 通过 URL 传入 t/w 两参数
  * 页面加载时调 /api/validate 校验令牌
  * 表单提交到 /api/submit，由 Vercel API 完成全量处理
  */
@@ -59,9 +59,6 @@ var TAG_CONFIG = {
 /** 上传令牌，从 URL ?t= 读取 */
 var TOKEN = '';
 
-/** 加密的 GitHub token，从 URL ?g= 读取，提交时传给 API */
-var ENC_GH = '';
-
 /** Worker URL，从 URL ?w= 读取，提交时传给 API */
 var WORKER_URL = '';
 
@@ -70,7 +67,6 @@ var tagParents = {};
 (function init() {
   var params = new URLSearchParams(window.location.search);
   TOKEN = params.get('t') || '';
-  ENC_GH = params.get('g') || '';
   WORKER_URL = params.get('w') || '';
 
   if (!TOKEN) {
@@ -344,8 +340,7 @@ async function handleSubmit(e) {
 
     // POST 到 Vercel API 创建 GitHub Issue
     var issueResp = await fetch(
-      '/api/submit?t=' + encodeURIComponent(TOKEN) +
-      '&g=' + encodeURIComponent(ENC_GH),
+      '/api/submit?t=' + encodeURIComponent(TOKEN),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
