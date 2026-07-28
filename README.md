@@ -1,6 +1,6 @@
 # OpenST QQ Bot
 
-English | [中文](README_zh.md)
+English | [中文](README_zh.md) 
 
 Event-driven modular QQ Bot for the OpenST Minecraft storage-tech community.
 Built with TypeScript, powered by DeepSeek AI.
