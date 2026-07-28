@@ -69,4 +69,6 @@ jobs:
 
           CONFIG__MODEL: deepseek-v4-flash
 
+          CONFIG__FALLBACK_MODELS: deepseek-v4-flash
+
           OPENAI_API_BASE: https://api.deepseek.com
