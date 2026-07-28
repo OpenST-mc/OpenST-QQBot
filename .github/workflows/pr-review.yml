@@ -65,7 +65,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-          OPENAI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
           CONFIG__MODEL: deepseek-v4-flash
 
