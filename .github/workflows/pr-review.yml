@@ -69,6 +69,8 @@ jobs:
 
           CONFIG__MODEL: deepseek-v4-flash
 
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: 32000
+
           CONFIG__FALLBACK_MODELS: deepseek-v4-flash
 
           OPENAI_API_BASE: https://api.deepseek.com
