@@ -58,6 +58,14 @@ jobs:
           echo "No permission"
           exit 1
 
+      - name: Check key
+        run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+          echo "EMPTY"
+          else
+          echo "EXISTS"
+          fi
+
 
       - name: Run PR Agent
         if: steps.permission.outputs.allowed == 'true'
