@@ -1,0 +1,22 @@
+[pr_reviewer]
+
+extra_instructions = """
+You are reviewing a Minecraft Fabric project.
+
+Focus on:
+
+- correctness
+- possible bugs
+- security issues
+- compatibility problems
+- performance problems
+- data migration risks
+
+Avoid:
+
+- trivial formatting comments
+- unnecessary refactoring suggestions
+- style nitpicks
+
+Only report actionable issues.
+"""
