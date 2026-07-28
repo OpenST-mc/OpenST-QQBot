@@ -67,10 +67,10 @@ jobs:
 
           OPENAI_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
-          CONFIG__MODEL: deepseek-v4-flash
+          OPENAI_API_BASE: https://api.deepseek.com
+
+          CONFIG__MODEL: deepseek/deepseek-v4-flash
+
+          CONFIG__FALLBACK_MODELS: deepseek/deepseek-v4-pro
 
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: 32000
-
-          CONFIG__FALLBACK_MODELS: deepseek-v4-flash
-
-          OPENAI_API_BASE: https://api.deepseek.com
