@@ -34,7 +34,7 @@ export async function analyzeSource(
     `请从以下文件中查找相关信息:\n\n${filesBlock}`
 
   try {
-    const result = await askAi(AGENT_SYSTEM_PROMPT, prompt)
+    const result = await askAi(AGENT_SYSTEM_PROMPT, prompt, 'pro')
     console.log(`[Agent] 分析完成，输出 ${result.length} 字符`)
     return result
   } catch (err) {

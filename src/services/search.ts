@@ -210,7 +210,7 @@ export async function summarizeResults(
     `用户问题: ${query}\n\n搜索结果:\n${resultsText}\n\n请用中文总结上述搜索结果。`
 
   try {
-    const summary = await askAi(SUMMARY_PROMPT, userPrompt)
+    const summary = await askAi(SUMMARY_PROMPT, userPrompt, 'flash')
     console.log(`[Search] AI 摘要完成，${summary.length} 字符`)
     return summary
   } catch (err) {

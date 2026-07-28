@@ -289,7 +289,12 @@ export async function handleAsk(
           const retryPrompt =
             `用户问题: ${args}\n\n` +
             `以下是联网搜索结果，请基于这些信息重新回答用户问题:\n\n${searchContext}`
-          const improvedAnswer = await askAi(systemPrompt, retryPrompt, history)
+          const improvedAnswer = await askAi(
+            systemPrompt,
+            retryPrompt,
+            'pro',
+            history
+          )
           if (improvedAnswer) {
             reply = improvedAnswer
             reply += '\n\n---\n## 搜索来源'

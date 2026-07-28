@@ -47,7 +47,7 @@ ${aiResponse.slice(0, 800)}
 
 如果只是提问或闲聊，只回复 "NONE"。`
 
-  const summary = await askAi(extractPrompt, '请提取知识')
+  const summary = await askAi(extractPrompt, '请提取知识', 'flash')
   if (!summary || summary.trim() === 'NONE') {
     return null
   }
@@ -74,7 +74,7 @@ ${recentMessages}
 
 如果没有有效知识，只回复 "NONE"。`
 
-  const summary = await askAi(extractPrompt, '请提取知识')
+  const summary = await askAi(extractPrompt, '请提取知识', 'flash')
   if (!summary || summary.trim() === 'NONE') {
     return null
   }
