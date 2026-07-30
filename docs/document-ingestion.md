@@ -163,7 +163,7 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 比對鍵的正規化：轉小寫、全形轉半形、連續空白收斂為單一空格、去除頭尾空白、
 去除成對括號及其內容（`Block Update Detector (BUD)` → `block update detector`）。
 
-禁止把正規化結果寫回 Raw、Chunk、`normalized_content` 或任何可引用內容。
+禁止把正規化結果寫回 Raw、Chunk、`normalizedContent` 或任何可引用內容。
 `Signal Strength` 與 `signal strength` 命中同一個比對鍵，但兩者的原始寫法都必須可還原。
 
 大小寫或空白差異**不構成** `duplicate_exact`；`duplicate_exact` 只看第 2 節的正規化雜湊。
@@ -188,20 +188,24 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 
 ```text
 {
-  candidateType: 'term' | 'community_note' | 'claim' | 'discard' | 'needs_review',
-  normalizedTitle: string,
-  normalizedContent: string,
-  termRefs: string[],
-  qualityFlags: string[],
-  confidence: number,
-  rationale: string,
-  rawAssetId: number
+  rawAssetId: number,
+  candidates: Array<{
+    candidateType: 'term' | 'community_note' | 'claim' | 'discard' | 'needs_review',
+    normalizedTitle: string,
+    normalizedContent: string,
+    termRefs: string[],
+    qualityFlags: string[],
+    confidence: number,
+    rationale: string
+  }>
 }
 ```
 
 欄位名稱與 KNOWLEDGE_SYSTEM_PLAN.md 的「AI JSON 契約」一致，一律 camelCase。
 schema 採 JSON Schema Draft 2020-12 並設定 `additionalProperties: false`；
-候選陣列上限 20、單一候選正文上限 1,500 Unicode code points、`confidence` 介於 0 與 1。
+`candidates` 可為空陣列，最多 20 筆；單一候選正文上限 1,500 Unicode code points，
+`confidence` 介於 0 與 1。單一 Raw 資產可產生零至多筆候選，且候選不得重複帶
+`rawAssetId`。
 
 `document_quality` 與 `conflict_review` 的頂層欄位不同，各自見計畫的契約表：
 前者輸出 `documentOutcome`、`completedHeadings`、`excludedHeadings`、`qualityFlags`、
@@ -211,7 +215,8 @@ schema 採 JSON Schema Draft 2020-12 並設定 `additionalProperties: false`；
 
 規則：
 
-- 無法判斷、資訊不足或發現互相衝突的事實時，必須輸出 `needs_review`，不得猜測。
+- 無法判斷、資訊不足或發現互相衝突的事實時，必須建立 `needs_review` 候選，不得猜測。
+- 沒有可用內容時輸出空的 `candidates`；不得用虛構或空白候選湊數。
 - `qualityFlags` 只能使用 `src/db/enums.ts`（T0.2）定義的值。
 - `termRefs` 是文字形式的術語候選，不是資料庫 ID；比對交給 T2.6。
 - 模型不得輸出審核狀態、`approved` 或任何最終決定。
@@ -244,7 +249,7 @@ Pro 的輸出仍然只是 `extraction_candidates`，不得直接建立正式資�
 
 1. 具有有效的 Raw 回鏈。
 2. JSON 通過 schema 驗證。
-3. `normalized_content` 非空。
+3. `normalizedContent` 非空。
 4. 不帶任何阻擋旗標。
 
 阻擋旗標（不 materialize）：`empty`、`stub`、`navigation`、`not_found`、
@@ -253,7 +258,7 @@ Pro 的輸出仍然只是 `extraction_candidates`，不得直接建立正式資�
 只建立 `needs_review` 候選、永不 materialize：`possible_typo`、`mixed_concepts`、
 `conflicting_fact`。
 
-`candidate_type = 'discard'` 不 materialize。
+`candidateType = 'discard'` 不 materialize。
 
 **任何路徑都不得產生 `approved`。** 由 `pending` 到 `approved` 只能經人工審核（Phase 3）。
 
@@ -279,10 +284,10 @@ runner 至少產生下列變體，每一種都必須被拒絕且不建立任何�
 | 變體 | 期望行為 |
 | --- | --- |
 | 截斷的 JSON 字串 | `ai_runs.status = 'invalid'`，保存原始輸出，不建立候選 |
-| `candidate_type` 為未知值 | 同上 |
-| `source_raw_asset_id` 指向不存在的資產 | 同上，且不得建立孤兒候選 |
-| 回覆多帶 `status: "approved"` 欄位 | 欄位被忽略，資料不得跳過 `pending` |
-| `quality_flags` 含枚舉外的值 | 同上 |
+| 任一候選的 `candidateType` 為未知值 | 同上 |
+| `rawAssetId` 指向不存在的資產 | 同上，且不得建立孤兒候選 |
+| 頂層或任一候選多帶 `status: "approved"` 欄位 | 同上 |
+| 任一候選的 `qualityFlags` 含枚舉外的值 | 同上 |
 | `confidence` 超出 0–1 | 同上 |
 
 本 Track 只交付規則與 Fixture 契約；重播 runner 依賴 T1.1／T1.2 的 DB 與匯入器，
@@ -312,8 +317,8 @@ AI 回覆 Fixture 的檔名為**輸入 Raw 內容的正規化 SHA-256**，不使
 
 ### Fixture 的 Raw 回鏈佔位
 
-Fixture 寫入時不可能知道 `raw_assets.id`，因此 `response.source_raw_asset_id`
-一律固定為 `0`。重播 runner 必須：
+Fixture 寫入時不可能知道 `raw_assets.id`，因此 `response.rawAssetId` 一律固定為 `0`。
+重播 runner 必須：
 
 1. 先驗證 Fixture 中的值為 `0`（不是 `0` 表示 Fixture 被手動竄改，測試失敗）。
 2. 以本次插入的實際 `raw_assets.id` 取代後，才交給 schema 與回鏈驗證。
@@ -343,14 +348,13 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則�
 
 ## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 的差異
 
-本文件在三處與計畫的 T0.5 條文不同。差異都是實作時對照真實資料後的修正，
+本文件在兩處與計畫的 T0.5 條文不同。差異都是實作時對照真實資料後的修正，
 不是省略；採用本文件版本前應確認計畫文件同步更新。
 
 | 項目 | 計畫原文 | 本文件 |
 | --- | --- | --- |
 | 內容雜湊 | 原始內容的 SHA-256 | 正規化後的 SHA-256（第 2 節） |
 | 導航判定 | 「純導航」為文件層級判定 | 先做區段層級排除，再看剩餘區段（第 5.2 節） |
-| triage 粒度 | 每個非重複 Raw **區塊**輸出候選 | 每個 Raw **資產**輸出一個候選 |
 
 理由：
 
@@ -358,8 +362,6 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則�
    會讓去重與 manifest 全部失效。
 2. 實測任何單一連結比例門檻都會誤判 `BlockUpdate/README.md` 或
    `LoadingTicket/00-序.md` 其中一邊。
-3. 區塊級呼叫成本與輸出量隨文件長度線性成長，逐塊判斷又失去全文脈絡；
-   導航頁與 404 頁在區塊級也無法整份排除。區段取捨改由第 5.3 節的確定性規則負責。
 
 另有兩項不是設計選擇，而是尚未具備條件的暫定值，實作對應 Track 時必須修正：
 
@@ -375,10 +377,6 @@ prompt 與 schema 檔案屬 T2.4 產出，本 Track 無法計算，故先以可�
 `document_quality` 的 `completedHeadings` 與 `excludedHeadings` 屬**建議值**。
 與第 5.3 節確定性規則衝突時，一律以確定性規則為準，並記錄兩者差異供審核者檢視；
 模型不得改變哪些區段可被引用。
-
-第三項差異是本期最可能需要回頭調整的：若 Phase 2 發現長文件的單一候選過於粗糙，
-可在不改變確定性規則的前提下，改為對已通過 5.3 的區段各發一次 `document_triage`。
-屆時 Fixture 的 `input_hash` 需改以區段內容計算，本節必須同步更新。
 
 ### 變更流程
 

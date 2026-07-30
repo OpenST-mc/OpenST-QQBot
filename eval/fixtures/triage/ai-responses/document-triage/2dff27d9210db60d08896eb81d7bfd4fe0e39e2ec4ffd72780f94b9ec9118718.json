@@ -7,6 +7,8 @@
   "approved_by": "woodengrass",
   "approved_at": "2026-07-28T00:00:00.000Z",
   "response": {
+    "rawAssetId": 0,
+    "candidates": [{
     "candidateType": "needs_review",
     "normalizedTitle": "漏斗限速笔记（版本不明）",
     "normalizedContent": "笔记主张漏斗成功传输后冷却固定为 7gt 且所有版本一致，并据此建议限速按 7gt 计算；同时提到不可堆叠物品分类需要限速，否则物品会在同一 gt 内被后方漏斗取走。笔记自身记录了另一种说法为 8gt，未给出判断依据。",
@@ -20,7 +22,7 @@
       "conflicting_fact"
     ],
     "confidence": 0.34,
-    "rationale": "文本未标注版本与运行环境，却宣称结论适用所有版本，并且内部即存在 7gt 与 8gt 两种互相冲突的说法。依规则不得猜测，输出 needs_review 并交由 Pro 做冲突比对。",
-    "rawAssetId": 0
+    "rationale": "文本未标注版本与运行环境，却宣称结论适用所有版本，并且内部即存在 7gt 与 8gt 两种互相冲突的说法。依规则不得猜测，输出 needs_review 并交由 Pro 做冲突比对。"
+    }]
   }
 }
