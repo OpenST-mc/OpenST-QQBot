@@ -252,8 +252,11 @@ Pro 的輸出仍然只是 `extraction_candidates`，不得直接建立正式資�
 3. `normalizedContent` 非空。
 4. 不帶任何阻擋旗標。
 
-阻擋旗標（不 materialize）：`empty`、`stub`、`navigation`、`not_found`、
+阻擋旗標（不 materialize）：`empty`、`stub`、`not_found`、
 `duplicate_exact`、`unsupported_format`、`parse_error`。
+
+`navigation` 是區段級旗標，只排除對應區段；它不得阻擋同一 Raw 資產中其他有效候選的
+materialize。整份資產沒有可切 Chunk 時，R4 直接輸出 `excluded`，不建立候選。
 
 只建立 `needs_review` 候選、永不 materialize：`possible_typo`、`mixed_concepts`、
 `conflicting_fact`。
@@ -346,24 +349,12 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則�
 前兩個在 T0.2 合併前以本文件為唯一定義處；後兩個散見於計畫他處，一併在此登記，
 避免 T0.2 只照計畫第 503 行的 11 個值實作而漏掉。
 
-## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 的差異
+## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 同步
 
-本文件在兩處與計畫的 T0.5 條文不同。差異都是實作時對照真實資料後的修正，
-不是省略；採用本文件版本前應確認計畫文件同步更新。
+本文件與計畫的 T0.5 條文一致：Raw 使用正規化內容 SHA-256、導航依區段判定，
+`document_triage` 以 Raw 資產為單位輸出候選陣列。
 
-| 項目 | 計畫原文 | 本文件 |
-| --- | --- | --- |
-| 內容雜湊 | 原始內容的 SHA-256 | 正規化後的 SHA-256（第 2 節） |
-| 導航判定 | 「純導航」為文件層級判定 | 先做區段層級排除，再看剩餘區段（第 5.2 節） |
-
-理由：
-
-1. 倉庫 `core.autocrlf=true`，工作區 CRLF 而 blob LF；原始位元組雜湊跨平台不一致，
-   會讓去重與 manifest 全部失效。
-2. 實測任何單一連結比例門檻都會誤判 `BlockUpdate/README.md` 或
-   `LoadingTicket/00-序.md` 其中一邊。
-
-另有兩項不是設計選擇，而是尚未具備條件的暫定值，實作對應 Track 時必須修正：
+另有兩項尚未具備實作條件的暫定值，實作對應 Track 時必須修正：
 
 | 項目 | 現況 | 修正時機 |
 | --- | --- | --- |
