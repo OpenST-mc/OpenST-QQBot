@@ -33,7 +33,7 @@
 
 | source_key | type | display_name | creator | origin_url | license | license_url | visibility_default | trust_level | attribution_rule | public_export_rule | status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `gtmc` | document_collection | GTMC 技術文件 | 待補充（各文章作者不同，逐篇追溯） | 待補充 | CC BY-NC-SA 4.0 | 待補充 | public | high | 顯示作品／文章名稱、可得作者、原始 URL、CC BY-NC-SA 4.0 與修改標記；找不到作者時留空 | 每次使用 GTMC 證據的回答須列來源 ID、作品／文章名稱與作者或署名對象；找不到作者時留空，不得臆造 | 已核准；`origin_url`／`license_url` 待補充後可更完整署名 |
+| `gtmc` | document_collection | GTMC 技術文件 | 待補充（各文章作者不同，逐篇追溯） | 待補充 | CC BY-NC-SA 4.0 | 待補充 | public | medium | 顯示作品／文章名稱、可得作者、原始 URL、CC BY-NC-SA 4.0 與修改標記；找不到作者時留空 | 每次使用 GTMC 證據的回答須列來源 ID、作品／文章名稱與作者或署名對象；找不到作者時留空，不得臆造 | 已核准；來源 URL、授權全文 URL 與逐篇作者待補充前不得標為 high |
 | `storage_tech_dictionary` | dictionary | Storage Tech Dictionary | Storage Tech Dictionary 社群 | https://github.com/StorageTechDictionary/StorageTechDictionary.github.io | GPL-3.0-or-later | 見 `public/database/dictionary/LICENSE.md` | public | high | 保留原始來源連結、著作權聲明與授權資訊 | 顯示來源與 GPL-3.0-or-later 資訊；不得省略授權聲明 | 已核准 |
 | `techmc_glossary` | glossary | TechMC Glossary | 待確認 | 待確認 | 待確認 | 待確認 | internal | low | 授權確認前僅供內部檢索與審核 | 授權確認前禁止進入 `public` 匯出或一般回答引用；不得假設授權已解決 | 外部阻擋：等待來源 URL、作者與再散布條件確認 |
 | `openst_machine_submission` | machine_submission | OpenST 機器投稿 | 各投稿者 | 既有 OpenST 檔案庫 | OpenST 投稿條款（投稿者已同意） | 待補充 | internal | medium | 僅用於機器推薦 | Bot 顯示既有 OpenST 檔案庫連結，不建立額外來源目錄條目；不對外暴露內部匯入細節 | 已核准 |
