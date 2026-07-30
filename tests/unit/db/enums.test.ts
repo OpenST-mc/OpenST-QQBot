@@ -36,6 +36,10 @@ test('不可用或待确认质量旗标不会 materialize', () => {
   assert.equal(blocksMaterialize('broken_link'), false)
 })
 
+test('导航旗标只排除对应区段，不阻挡同一资产的有效候选', () => {
+  assert.equal(blocksMaterialize('navigation'), false)
+})
+
 test('discard 与 needs_review 候选不会 materialize', () => {
   assert.equal(candidateTypeBlocksMaterialize('discard'), true)
   assert.equal(candidateTypeBlocksMaterialize('needs_review'), true)

@@ -66,16 +66,16 @@ export const QUALITY_FLAGS = [
   'license_unknown',
   'unsupported_format',
   'parse_error',
-  'invalid_ai_output'
+  'invalid_ai_output',
+  'oversized_block'
 ] as const
 export type QualityFlag = (typeof QUALITY_FLAGS)[number]
 
-// 阻挡旗标：内容本身不可用，结果为 excluded 或 provenance_only
+// 阻挡旗标：候选内容本身不可用，结果为 excluded 或 provenance_only
 // 见 docs/document-ingestion.md 第 8 节
 export const BLOCKING_QUALITY_FLAGS: readonly QualityFlag[] = [
   'empty',
   'stub',
-  'navigation',
   'not_found',
   'duplicate_exact',
   'unsupported_format',
@@ -138,7 +138,7 @@ export const CANDIDATE_STATUSES = [
 export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number]
 
 // 候选类型
-// document_triage 对每个非重复 Raw 区块输出其一，无法判断时只能输出 needs_review
+// document_triage 对每个非重复 Raw 资产输出零至多笔候选，无法判断时使用 needs_review
 export const CANDIDATE_TYPES = [
   'term',
   'community_note',
