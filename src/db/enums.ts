@@ -225,6 +225,11 @@ export const CLAIM_EVIDENCE_TYPES = [
 ] as const
 export type ClaimEvidenceType = (typeof CLAIM_EVIDENCE_TYPES)[number]
 
+// Claim 之间的关系
+// 计划书未给 claim_relations 建 DDL，此清单来自总览表的散文定义
+export const CLAIM_RELATION_TYPES = ['supports', 'conflicts_with', 'supersedes'] as const
+export type ClaimRelationType = (typeof CLAIM_RELATION_TYPES)[number]
+
 // 证据对 Claim 的立场
 export const EVIDENCE_STANCES = ['supports', 'contradicts'] as const
 export type EvidenceStance = (typeof EVIDENCE_STANCES)[number]
@@ -334,6 +339,7 @@ export const isTermRelationType = createGuard(TERM_RELATION_TYPES)
 export const isKnowledgeKind = createGuard(KNOWLEDGE_KINDS)
 export const isClaimConditionType = createGuard(CLAIM_CONDITION_TYPES)
 export const isClaimEvidenceType = createGuard(CLAIM_EVIDENCE_TYPES)
+export const isClaimRelationType = createGuard(CLAIM_RELATION_TYPES)
 export const isEvidenceStance = createGuard(EVIDENCE_STANCES)
 export const isReviewTargetType = createGuard(REVIEW_TARGET_TYPES)
 export const isReviewDecision = createGuard(REVIEW_DECISIONS)
@@ -371,6 +377,7 @@ export const assertClaimConditionType = createAssert(
   CLAIM_CONDITION_TYPES
 )
 export const assertClaimEvidenceType = createAssert('evidence_type', CLAIM_EVIDENCE_TYPES)
+export const assertClaimRelationType = createAssert('relation_type', CLAIM_RELATION_TYPES)
 export const assertEvidenceStance = createAssert('stance', EVIDENCE_STANCES)
 export const assertReviewTargetType = createAssert('target_type', REVIEW_TARGET_TYPES)
 export const assertReviewDecision = createAssert('decision', REVIEW_DECISIONS)

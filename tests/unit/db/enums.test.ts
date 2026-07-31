@@ -3,18 +3,31 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  CLAIM_RELATION_TYPES,
   CandidateType,
   EnumValueError,
   QualityFlag,
   REVIEW_DECISIONS,
   REVIEW_STATUS_TRANSITIONS,
   ReviewStatus,
+  assertClaimRelationType,
   assertReviewStatus,
   blocksMaterialize,
   candidateTypeBlocksMaterialize,
   canTransitionReviewStatus,
+  isClaimRelationType,
   isReviewStatus
 } from '../../../src/db/enums'
+
+// claim_relations 在计划书里只有总览表的散文定义（supports/conflicts_with/supersedes），
+// 没有 CHECK 约束 DDL，容易在枚举盘点时漏掉；这里钉住它与 term_relations 一样
+// 拥有独立的类型守卫与断言，供 Phase 3 写入路径直接引用
+test('claim 关系类型与计划书总览表一致', () => {
+  assert.deepEqual([...CLAIM_RELATION_TYPES], ['supports', 'conflicts_with', 'supersedes'])
+  assert.equal(isClaimRelationType('supports'), true)
+  assert.equal(isClaimRelationType('related_to'), false)
+  assert.throws(() => assertClaimRelationType('related_to'), EnumValueError)
+})
 
 test('只接受已定义的审核状态', () => {
   assert.equal(isReviewStatus('pending'), true)
