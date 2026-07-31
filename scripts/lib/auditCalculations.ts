@@ -392,9 +392,29 @@ export function extractRelativeLinkTargets(content: string): string[] {
 
 // 一個連結目標可接受的候選檔案路徑。docsify 站內連結常省略 `.md` 副檔名，
 // 因此無副檔名的目標必須同時嘗試補上 `.md`；任一候選存在即視為連結有效。
+// 連結可能以百分比編碼書寫（語料中大量中文檔名，`img%20a.png` 這類寫法很常見），
+// 檔案系統上的名稱則是解碼後的形式，因此解碼版本也要納入候選。
+// 編碼不合法時 decodeURIComponent 會拋錯，此時保留原字串即可。
+function decodeLinkTarget(target: string): string {
+  try {
+    return decodeURIComponent(target)
+  } catch {
+    return target
+  }
+}
+
 export function linkTargetCandidates(target: string): string[] {
-  const hasExtension = /\.[^./\\]+$/.test(target)
-  return hasExtension ? [target] : [target, `${target}.md`]
+  const decoded = decodeLinkTarget(target)
+  const bases = decoded === target ? [target] : [target, decoded]
+
+  const candidates: string[] = []
+  for (const base of bases) {
+    candidates.push(base)
+    if (!/\.[^./\\]+$/.test(base)) {
+      candidates.push(`${base}.md`)
+    }
+  }
+  return candidates
 }
 
 // 單一 gtmc Markdown 檔案的文件類型分類：not_found（檔名含 404）、

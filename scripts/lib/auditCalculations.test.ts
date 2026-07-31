@@ -330,6 +330,14 @@ describe('linkTargetCandidates', () => {
   it('路徑含點號目錄但檔名無副檔名時仍嘗試 .md', () => {
     assert.deepEqual(linkTargetCandidates('../a.b/c'), ['../a.b/c', '../a.b/c.md'])
   })
+
+  it('百分比編碼的連結會同時嘗試解碼後的檔名', () => {
+    assert.deepEqual(linkTargetCandidates('img%20my.png'), ['img%20my.png', 'img my.png'])
+  })
+
+  it('不合法的百分比編碼不拋錯，維持原字串', () => {
+    assert.deepEqual(linkTargetCandidates('a%ZZ.png'), ['a%ZZ.png'])
+  })
 })
 
 describe('normalizeLineEndings', () => {
