@@ -27,6 +27,33 @@ export function splitLines(text: string): string[] {
   return lines
 }
 
+// 欄位層級盤點：T0.3 完成條件要求登記「每個來源的實際欄位」。
+// 只記錄檔案雜湊時，欄位改名或增刪只會表現為不透明的 hash 變化，
+// 無法看出 schema 究竟怎麼變——而 D1 正是欄位名稱不符造成的缺陷。
+// `partial` 把「只出現在部分記錄」的欄位獨立標出，用來暴露不一致的 schema。
+export interface FieldInventory {
+  fields: string[]
+  alwaysPresent: string[]
+  partial: string[]
+}
+
+export function computeFieldInventory(
+  records: Array<Record<string, unknown>>
+): FieldInventory {
+  const occurrences = new Map<string, number>()
+  for (const record of records) {
+    for (const key of Object.keys(record)) {
+      occurrences.set(key, (occurrences.get(key) || 0) + 1)
+    }
+  }
+
+  const fields = [...occurrences.keys()].sort()
+  const alwaysPresent = fields.filter((f) => occurrences.get(f) === records.length)
+  const partial = fields.filter((f) => occurrences.get(f) !== records.length)
+
+  return { fields, alwaysPresent, partial }
+}
+
 // database.json 機器目錄
 export interface RawMachineEntry {
   id: string

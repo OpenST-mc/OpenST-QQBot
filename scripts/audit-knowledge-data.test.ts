@@ -213,6 +213,39 @@ describe('runAudit', () => {
     )
   })
 
+  // schema 漂移必須看得出「哪一欄變了」，而不是只丟出一個 hash 變化
+  it('欄位改名時，差異報告指出具體欄位而非只有雜湊變化', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+
+    // 模擬 D1 那類缺陷：把 Short Form 改名為 term
+    const glossary = join(rootDir, 'public', 'database', 'TechMC Glossary.csv')
+    writeFileSync(
+      glossary,
+      '﻿' + 'Category,term,Full Form (English)\n' + 'A,BUD,Block Update Detector\n'
+    )
+
+    const { log, io } = makeIo()
+    assert.equal(runAudit(rootDir, [], io), 1)
+    const report = log.join('\n')
+    assert.ok(report.includes('columns'), '應指出欄位清單變化')
+    assert.ok(report.includes('term'), '應點名新欄位')
+  })
+
+  it('新增可選欄位時，區分出「只有部分記錄有」的欄位', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+
+    const dbJsonPath = join(rootDir, 'public', 'database', 'database.json')
+    const machines = JSON.parse(readFileSync(dbJsonPath, 'utf-8'))
+    machines[0].newOptionalField = 'x'
+    writeFileSync(dbJsonPath, JSON.stringify(machines))
+
+    const { log, io } = makeIo()
+    assert.equal(runAudit(rootDir, [], io), 1)
+    const report = log.join('\n')
+    assert.ok(report.includes('fieldInventory'))
+    assert.ok(report.includes('newOptionalField'))
+  })
+
   it('逐檔雜湊可偵測新增與刪除來源檔案', () => {
     runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
 

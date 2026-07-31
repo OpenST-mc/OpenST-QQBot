@@ -12,6 +12,7 @@ import {
   computeDictionaryTxtStats,
   computeDictionaryEntryStats,
   computeGlossaryStats,
+  computeFieldInventory,
   hasUtf8Bom,
   detectEncoding,
   extractRelativeLinkTargets,
@@ -42,6 +43,38 @@ describe('splitLines', () => {
 
   it('空字串視為 0 行（符合 wc -l 慣例）', () => {
     assert.deepEqual(splitLines(''), [])
+  })
+})
+
+describe('computeFieldInventory', () => {
+  it('列出所有欄位並區分「每筆都有」與「只有部分有」', () => {
+    const inv = computeFieldInventory([
+      { id: '1', name: 'A', preview: 'p.png' },
+      { id: '2', name: 'B' }
+    ])
+    assert.deepEqual(inv.fields, ['id', 'name', 'preview'])
+    assert.deepEqual(inv.alwaysPresent, ['id', 'name'])
+    assert.deepEqual(inv.partial, ['preview'])
+  })
+
+  it('欄位名排序固定，與記錄順序無關（避免假差異）', () => {
+    const a = computeFieldInventory([{ b: 1, a: 2 }])
+    const b = computeFieldInventory([{ a: 2, b: 1 }])
+    assert.deepEqual(a.fields, b.fields)
+  })
+
+  it('空輸入回傳空盤點', () => {
+    assert.deepEqual(computeFieldInventory([]), {
+      fields: [],
+      alwaysPresent: [],
+      partial: []
+    })
+  })
+
+  it('欄位改名會反映為欄位清單變化（D1 類缺陷可見）', () => {
+    const before = computeFieldInventory([{ 'Short Form': 'BUD' }])
+    const after = computeFieldInventory([{ term: 'BUD' }])
+    assert.notDeepEqual(before.fields, after.fields)
   })
 })
 

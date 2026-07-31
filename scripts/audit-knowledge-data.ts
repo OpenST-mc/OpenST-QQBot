@@ -22,6 +22,8 @@ import {
   computeDictionaryEntryStats,
   GlossaryStats,
   computeGlossaryStats,
+  FieldInventory,
+  computeFieldInventory,
   detectEncoding,
   SourceEncoding,
   normalizeLineEndings,
@@ -120,19 +122,28 @@ function parseCsv<T>(content: string): T[] {
 interface MachineAudit extends MachineStats {
   file: string
   encoding: SourceEncoding
+  fieldInventory: FieldInventory
 }
 
 function auditMachines(rootDir: string): MachineAudit {
   const file = 'public/database/database.json'
   const entries = JSON.parse(readText(rootDir, file)) as RawMachineEntry[]
 
-  return { file, encoding: readEncoding(rootDir, file), ...computeMachineStats(entries) }
+  return {
+    file,
+    encoding: readEncoding(rootDir, file),
+    fieldInventory: computeFieldInventory(
+      entries as unknown as Array<Record<string, unknown>>
+    ),
+    ...computeMachineStats(entries)
+  }
 }
 
 // database.csv 歷史知識庫稽核（RFC 4180，禁止按換行切割）
 interface LegacyCsvAudit extends LegacyCsvStats {
   file: string
   encoding: SourceEncoding
+  fieldInventory: FieldInventory
 }
 
 function readLegacyCsvRecords(rootDir: string): LegacyCsvRecord[] {
@@ -145,6 +156,9 @@ function auditLegacyCsv(rootDir: string, records: LegacyCsvRecord[]): LegacyCsvA
   return {
     file,
     encoding: readEncoding(rootDir, file),
+    fieldInventory: computeFieldInventory(
+      records as unknown as Array<Record<string, unknown>>
+    ),
     ...computeLegacyCsvStats(records)
   }
 }
@@ -169,7 +183,9 @@ interface DictionaryAudit extends DictionaryEntryStats {
   entriesDir: string
   entryFileCount: number
   encoding: SourceEncoding | 'mixed'
+  fieldInventory: FieldInventory
   zhTranslationCount: number
+  zhFieldInventory: FieldInventory
 }
 
 function auditDictionary(rootDir: string): DictionaryAudit {
@@ -197,8 +213,14 @@ function auditDictionary(rootDir: string): DictionaryAudit {
     entriesDir,
     entryFileCount: entryFiles.length,
     encoding,
+    fieldInventory: computeFieldInventory(
+      entries as unknown as Array<Record<string, unknown>>
+    ),
     ...computeDictionaryEntryStats(entries, zhIds),
-    zhTranslationCount: zhTranslations.entries.length
+    zhTranslationCount: zhTranslations.entries.length,
+    zhFieldInventory: computeFieldInventory(
+      zhTranslations.entries as unknown as Array<Record<string, unknown>>
+    )
   }
 }
 
@@ -221,9 +243,12 @@ function auditDictionaryTxt(rootDir: string): DictionaryTxtAudit {
 }
 
 // TechMC Glossary.csv 稽核
+// 欄名必須逐一登記：D1 就是「程式期待的欄名與實際欄名不符」造成的缺陷，
+// 只記欄位數量無法看出是哪一欄被改名或移除
 interface GlossaryAudit extends GlossaryStats {
   file: string
   encoding: SourceEncoding
+  columns: string[]
 }
 
 function auditGlossary(rootDir: string): GlossaryAudit {
@@ -239,7 +264,7 @@ function auditGlossary(rootDir: string): GlossaryAudit {
   }) as Array<Record<string, string>>
   const header = rows.length > 0 ? Object.keys(rows[0]) : []
 
-  return { file, encoding, ...computeGlossaryStats(rows, header) }
+  return { file, encoding, columns: header, ...computeGlossaryStats(rows, header) }
 }
 
 // gtmc-database/ 稽核：檔案數、結構區塊、疑似 404/stub、與歷史 CSV 逐字重複、失效相對連結

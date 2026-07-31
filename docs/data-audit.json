@@ -3,6 +3,29 @@
     "openst_machine_submission": {
       "file": "public/database/database.json",
       "encoding": "utf-8",
+      "fieldInventory": {
+        "fields": [
+          "author",
+          "description",
+          "filename",
+          "id",
+          "name",
+          "preview",
+          "sub_id",
+          "tags"
+        ],
+        "alwaysPresent": [
+          "author",
+          "description",
+          "filename",
+          "id",
+          "name",
+          "preview",
+          "sub_id",
+          "tags"
+        ],
+        "partial": []
+      },
       "machineCount": 81,
       "uniqueSubIdCount": 81,
       "totalTagCount": 228,
@@ -11,6 +34,17 @@
     "legacy_database_csv": {
       "file": "public/database/database.csv",
       "encoding": "utf-8",
+      "fieldInventory": {
+        "fields": [
+          "content",
+          "topic"
+        ],
+        "alwaysPresent": [
+          "content",
+          "topic"
+        ],
+        "partial": []
+      },
       "logicalRecordCount": 151,
       "emptyContentCount": 0,
       "duplicateContentHashCount": 1,
@@ -29,6 +63,33 @@
       "entriesDir": "public/database/dictionary/entries",
       "entryFileCount": 112,
       "encoding": "utf-8",
+      "fieldInventory": {
+        "fields": [
+          "definition",
+          "id",
+          "referencedBy",
+          "references",
+          "status",
+          "statusMessageID",
+          "statusURL",
+          "terms",
+          "threadURL",
+          "updatedAt"
+        ],
+        "alwaysPresent": [
+          "definition",
+          "id",
+          "referencedBy",
+          "references",
+          "status",
+          "statusMessageID",
+          "statusURL",
+          "terms",
+          "threadURL",
+          "updatedAt"
+        ],
+        "partial": []
+      },
       "recordCount": 112,
       "emptyDefinitionCount": 0,
       "duplicateIdCount": 0,
@@ -37,7 +98,22 @@
         "APPROVED": 112
       },
       "missingZhTranslationCount": 0,
-      "zhTranslationCount": 112
+      "zhTranslationCount": 112,
+      "zhFieldInventory": {
+        "fields": [
+          "definitionZh",
+          "id",
+          "terms",
+          "termsZh"
+        ],
+        "alwaysPresent": [
+          "definitionZh",
+          "id",
+          "terms",
+          "termsZh"
+        ],
+        "partial": []
+      }
     },
     "legacy_dictionary_txt": {
       "file": "public/database/Dictionary.txt",
@@ -48,6 +124,34 @@
     "techmc_glossary": {
       "file": "public/database/TechMC Glossary.csv",
       "encoding": "utf-8-bom",
+      "columns": [
+        "Category",
+        "Short Form",
+        "Regex",
+        "Full Form (English)",
+        "Related",
+        "Description",
+        "Arabic",
+        "Description (Arabic)",
+        "Chinese",
+        "Description (Chinese)",
+        "French",
+        "Description (French)",
+        "German",
+        "Description (German)",
+        "Italian",
+        "Description (Italian)",
+        "Japanese",
+        "Description (Japanese)",
+        "Korean",
+        "Description (Korean)",
+        "Portugese",
+        "Description (Portugese)",
+        "Russian",
+        "Description (Russian)",
+        "Spanish",
+        "Description (Spanish)"
+      ],
       "columnCount": 26,
       "rowCount": 415,
       "emptyShortFormCount": 327,
