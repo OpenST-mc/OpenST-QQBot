@@ -354,7 +354,10 @@ Fixture 寫入時不可能知道 `raw_assets.id`，因此 `response.rawAssetId` 
 
 ### 目前 Fixture 的來歷
 
-`ai-responses/` 下的 7 份為**人工撰寫並核准**的種子契約，不是模型錄製輸出。
+`ai-responses/` 下的 9 份為**人工撰寫並核准**的種子契約，不是模型錄製輸出。
+每個 `expected_outcome: 'pending'` 的案例都必須有對應的 `document-triage/<raw-content-hash>.json`
+種子，其 `candidates` 至少一筆的 `candidateType` 與該案例的 `expected_candidate_type` 一致；
+缺少種子的 `pending` 案例無法被第 9 節的重播 runner 驗證，視為契約缺陷。
 它們定義「合格輸出長什麼樣」，供規則層在管線可執行前就能被測試。
 
 T2.4 匯入器實作後，必須以真實 Flash／Pro 輸出重新錄製同一批 `input_hash` 的回覆，
