@@ -72,10 +72,15 @@ export const QUALITY_FLAGS = [
 export type QualityFlag = (typeof QUALITY_FLAGS)[number]
 
 // 阻挡旗标：候选内容本身不可用，结果为 excluded 或 provenance_only
-// 见 docs/document-ingestion.md 第 8 节
+// 以 KNOWLEDGE_SYSTEM_PLAN.md 的 materialize 规则为准：navigation 只阻挡带此标记的
+// 候选本身，不连坐同一 Raw 资产的其他候选——即 blocksMaterialize 只按候选自身的旗标
+// 判断，不查询同资产的其他候选，天然满足这个范围限定
+// document-ingestion.md 对 navigation 的重新诠释（AI 呼叫前已排除导航正文，标记多为
+// 资讯性注记）尚未回写进权威计划书并经审核者核准，因此本表暂不采用该诠释
 export const BLOCKING_QUALITY_FLAGS: readonly QualityFlag[] = [
   'empty',
   'stub',
+  'navigation',
   'not_found',
   'duplicate_exact',
   'unsupported_format',

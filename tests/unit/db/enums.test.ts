@@ -76,8 +76,11 @@ test('不可用或待确认质量旗标不会 materialize', () => {
   assert.equal(blocksMaterialize('broken_link'), false)
 })
 
-test('导航旗标只排除对应区段，不阻挡同一资产的有效候选', () => {
-  assert.equal(blocksMaterialize('navigation'), false)
+// 依计划书 materialize 规则：navigation 阻挡带此标记的候选本身，
+// 但 blocksMaterialize 只按单一候选的旗标判断，不查询同资产其他候选，
+// 天然满足「不连坐」——这里只需确认候选层级会被挡
+test('导航候选本身被阻挡 materialize', () => {
+  assert.equal(blocksMaterialize('navigation'), true)
 })
 
 test('discard 与 needs_review 候选不会 materialize', () => {
