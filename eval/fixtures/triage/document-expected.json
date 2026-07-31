@@ -9,13 +9,13 @@
   "raw_root_status": "pending_t1_2b",
   "approved_by": "woodengrass",
   "approved_at": "2026-07-28T00:00:00.000Z",
-  "notes": "raw_content_hash 為 docs/document-ingestion.md 第 2 節定義的正規化 SHA-256，非原始位元組雜湊。roots.raw 是 T1.2b 完成後的目標路徑；raw_root_status='pending_t1_2b' 時，重播 runner 必須改用 roots.raw_pending_t1_2b 解析 source_root='raw' 的案例。T1.2b 落地時，該 Track 的 PR 須將 raw_root_status 改為 'migrated' 並移除 raw_pending_t1_2b 欄位；本檔雜湊值不受路徑遷移影響。",
+  "notes": "normalized_content_hash 為 docs/document-ingestion.md 第 2 節定義的正規化 SHA-256，非原始位元組雜湊。roots.raw 是 T1.2b 完成後的目標路徑；raw_root_status='pending_t1_2b' 時，重播 runner 必須改用 roots.raw_pending_t1_2b 解析 source_root='raw' 的案例。T1.2b 落地時，該 Track 的 PR 須將 raw_root_status 改為 'migrated' 並移除 raw_pending_t1_2b 欄位；本檔雜湊值不受路徑遷移影響。",
   "cases": [
     {
       "source_root": "raw",
       "source_path": "gtmc-database/MicroTiming/01-刻与刻间时序.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "143eac6afa9b6a7ba18fb4fafcf10a1291f8c7efba9c5bca7804b2dba8f96f05",
       "expected_outcome": "pending",
       "expected_candidate_type": "claim",
@@ -37,7 +37,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/LoadingTicket/00-序.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "46f0a193d5c32eb1a6a01946d3dd1a751e909c1d0eee2821234376cbb255a403",
       "expected_outcome": "excluded",
       "expected_candidate_type": null,
@@ -58,7 +58,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/LoadingTicket/02-加载票系统的运作细节.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "ee90b7903ed54449bd56c43cff3ada1b94b135db4545fb5ce5a7d801c432a875",
       "expected_outcome": "pending",
       "expected_candidate_type": "community_note",
@@ -77,7 +77,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/LoadingTicket/a-附页-辅助mod.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "e20d7ddf173baeeaa2964d575bceb66fbc9fdf1ab8eb5dd0f09d47080b08b399",
       "expected_outcome": "pending",
       "expected_candidate_type": "community_note",
@@ -97,7 +97,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/LoadingTicket/b-附页-一些译名.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "170432c783e8dd013d509e849165db79d09efa9387bcc9c5dc8c317704e1fabd",
       "expected_outcome": "pending",
       "expected_candidate_type": "term",
@@ -113,7 +113,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/Appendix/00-专有名词解释.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "e791183b16f8a79bc2029c581530209e215fe2936fe01709470b7e8553a0c370",
       "expected_outcome": "excluded",
       "expected_candidate_type": null,
@@ -133,7 +133,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/BlockUpdate/README.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "655d46684cd48c7f1deca10f3acc9985056214bcd6d06d0363bf9f6e6cd18f52",
       "expected_outcome": "excluded",
       "expected_candidate_type": null,
@@ -153,7 +153,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/EntityAI/404.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "fc270e12e56f1c5dc916cbdd1e57e0234e63545e34c7f529bfd4b20d0f791749",
       "expected_outcome": "excluded",
       "expected_candidate_type": null,
@@ -169,7 +169,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/EntityMove/404.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "fc270e12e56f1c5dc916cbdd1e57e0234e63545e34c7f529bfd4b20d0f791749",
       "expected_outcome": "provenance_only",
       "expected_candidate_type": null,
@@ -185,7 +185,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/EntityAI/00-序.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "eb667fbc3b527fe1c6a836ad884cb445ab783d6c7599a87f0b274ab39d2c2f0e",
       "expected_outcome": "excluded",
       "expected_candidate_type": null,
@@ -201,7 +201,7 @@
       "source_root": "raw",
       "source_path": "gtmc-database/EntityMove/00-序.md",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "eb667fbc3b527fe1c6a836ad884cb445ab783d6c7599a87f0b274ab39d2c2f0e",
       "expected_outcome": "provenance_only",
       "expected_candidate_type": null,
@@ -217,7 +217,7 @@
       "source_root": "fixture",
       "source_path": "wiki-export-hopper.html",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "2c19d56d7ce1f2368d33741474b0feae591ddce6df8022fad0e95b5e4518dd59",
       "expected_outcome": "pending",
       "expected_candidate_type": "claim",
@@ -238,7 +238,7 @@
       "source_root": "fixture",
       "source_path": "community-note-hopper.txt",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "2dff27d9210db60d08896eb81d7bfd4fe0e39e2ec4ffd72780f94b9ec9118718",
       "expected_outcome": "candidate",
       "expected_candidate_type": "needs_review",
@@ -254,7 +254,7 @@
       "source_root": "fixture",
       "source_path": "learn-submission-observer.txt",
       "logical_record_no": null,
-      "raw_content_hash":
+      "normalized_content_hash":
         "94d1b9ee581edac94d3933fb157d07150495fbfd91dbbb0baa58478d3929ff4f",
       "expected_outcome": "pending",
       "expected_candidate_type": "claim",

@@ -49,11 +49,17 @@ Wiki 匯出 HTML 與純文字教學。
 都經正常 commit，任一歷史 `content_hash` 都能用 `git log -p` 或對應 commit 的
 checkout 還原，不需要資料庫額外保存正文。
 
-這個前提有兩個目前未涵蓋的缺口，留給對應 Track 處理：
+這個前提有兩個目前未涵蓋的缺口，**明確不在 T0.5 或本分支的職權內解決**：
 
 1. 若 Raw 檔案在未經 commit 的情況下被直接覆寫或刪除，`raw_assets` 中舊
    `content_hash` 對應的內容即不可逆遺失；掃描器偵測到雜湊改變時只會建立新資產，
-   不會警告舊內容已消失。
+   不會警告舊內容已消失。真正的強保證（例如改用 hash-addressed、append-only
+   的儲存方式，讓覆蓋在結構上不可能發生）需要更動 Raw 目錄的實體佈局，這會直接
+   衝突已合併進 `upstream/main` 的 T1.2 schema——`raw_assets.relative_path` 與
+   `asset_key`（`<source_key>:<relative_path>:<logical_record_no>:<sha256>`）
+   都假設穩定的人類可讀路徑，不是雜湊路徑。這是儲存架構層級的決定，若要做，
+   應另立 Raw 版控政策 Track（呼應計畫「SQLite 備份 本期暫不實作，後續另立備份
+   Track」的既有決定），不由 T0.5 片面引入。
 2. `/learn` 等社群投稿如何落地為 Raw 檔案（是否經同一份 `public/database/raw/`
    目錄、是否同樣受 git 版控）不屬本文件範圍，由負責 `/learn` 寫入路徑的 Track
    （T1.2a 或 T3.6 一類）定義並確保同等的可重現性保證。
@@ -263,13 +269,15 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 ```
 
 **權威來源與跨分支依賴**：以上欄位名稱抄錄自 `KNOWLEDGE_SYSTEM_PLAN.md`
-「AI JSON 契約」一節。該檔案目前只存在於尚未合併的 `docs/knowledge-system-plan`
-分支，不在本分支（`feat/t0.5-document-ingestion`）與 `main` 的歷史中，單獨檢出
-本分支看不到被引用的來源。因此本節不再只用「見計畫的契約表」這種指標式寫法，
-改為直接內嵌完整欄位定義，使本文件在計畫分支合併前也能自足驗證。
+「AI JSON 契約」一節。`docs/knowledge-system-plan` 分支已透過 PR #11 合併進
+`upstream/main`（原作者倉庫），但尚未合併進本 fork 的 `origin/main`；
+本分支（`feat/t0.5-document-ingestion`）是從 `origin/main` 分出，其歷史中不含
+`KNOWLEDGE_SYSTEM_PLAN.md`，單獨檢出本分支仍看不到被引用的來源。因此本節不再
+只用「見計畫的契約表」這種指標式寫法，改為直接內嵌完整欄位定義，使本文件不依賴
+`origin/main` 何時同步 upstream 即可自足驗證。
 
-計畫分支合併後，若其「AI JSON 契約」一節與本節文字不一致，以計畫為準，
-必須回頭修正本文件，不可反向修改計畫遷就本文件既有 Fixture。
+`origin/main` 同步 upstream 後，若計畫「AI JSON 契約」一節與本節文字不一致，
+以計畫為準，必須回頭修正本文件，不可反向修改計畫遷就本文件既有 Fixture。
 
 規則：
 
@@ -401,7 +409,7 @@ AI 回覆 Fixture 的檔名為**輸入 Raw 內容的正規化 SHA-256**，不使
 3. 若為 `migrated`（或該欄位不存在），使用 `roots.raw`。
 
 T1.2b 的 PR 必須同時把 `raw_root_status` 改為 `migrated` 並移除
-`raw_pending_t1_2b` 欄位；`raw_content_hash` 不受路徑遷移影響，不需重算。
+`raw_pending_t1_2b` 欄位；`normalized_content_hash` 不受路徑遷移影響，不需重算。
 
 ### Fixture 的 Raw 回鏈佔位
 
@@ -479,9 +487,11 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則�
 
 ## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 同步
 
-本文件與 `docs/knowledge-system-plan` 分支（commit `7ed20a0`）的 T0.5 條文一致：
+本文件與 `KNOWLEDGE_SYSTEM_PLAN.md`（`docs/knowledge-system-plan` 分支
+commit `7ed20a0`，已透過 PR #11 合併進 `upstream/main`）的 T0.5 條文一致：
 Raw 使用正規化內容 SHA-256、導航依區段判定、`document_triage` 以 Raw 資產為單位
-輸出候選陣列。該分支尚未合併至 `main`，本分支的歷史中不含
+輸出候選陣列、Fixture 雜湊欄位命名為 `normalized_content_hash`。該合併只進了
+`upstream/main`，尚未同步進本 fork 的 `origin/main`，本分支的歷史中因此仍不含
 `KNOWLEDGE_SYSTEM_PLAN.md`；上述「一致」僅代表撰寫本節時兩份文件的內容相符，
 不代表本分支能自行驗證此事。第 7.1 節已將 AI 契約欄位直接內嵌於本文件，
 避免驗證本文件時需要跨分支查閱。
