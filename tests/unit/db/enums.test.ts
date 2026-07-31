@@ -6,6 +6,7 @@ import {
   EnumValueError,
   REVIEW_DECISIONS,
   REVIEW_STATUS_TRANSITIONS,
+  ReviewStatus,
   assertReviewStatus,
   blocksMaterialize,
   candidateTypeBlocksMaterialize,
@@ -19,6 +20,23 @@ test('只接受已定义的审核状态', () => {
   assert.equal(isReviewStatus('Approved'), false)
   assert.equal(isReviewStatus(null), false)
   assert.throws(() => assertReviewStatus('unknown'), EnumValueError)
+})
+
+// DB 读回、AI JSON 与命令参数会绕过编译期类型，非法值必须报出可读错误而非 TypeError
+test('转移检查对非法状态值抛出枚举错误', () => {
+  assert.throws(
+    () => canTransitionReviewStatus('archived' as ReviewStatus, 'approved', 'reviewer'),
+    EnumValueError
+  )
+  assert.throws(
+    () => canTransitionReviewStatus('pending', 'Approved' as ReviewStatus, 'reviewer'),
+    EnumValueError
+  )
+  const unknown = 'archived' as ReviewStatus
+  assert.throws(
+    () => canTransitionReviewStatus(unknown, unknown, 'reviewer'),
+    EnumValueError
+  )
 })
 
 test('只有审核者可以将待审内容核准', () => {

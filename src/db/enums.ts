@@ -457,6 +457,19 @@ export function checkReviewStatusTransition(
   to: ReviewStatus,
   actor: TransitionActor
 ): string | null {
+  // 三个入参都可能来自绕过编译期类型的外部输入：DB 读回、AI JSON、QQ 命令参数
+  // 非法枚举值属于数据损坏而非业务判定，必须以 EnumValueError 报出合法值清单，
+  // 不能让查表得到 undefined 之后抛出难以追查的 TypeError
+  if (!isReviewStatus(from)) {
+    throw new EnumValueError('transition.from', from, REVIEW_STATUSES)
+  }
+  if (!isReviewStatus(to)) {
+    throw new EnumValueError('transition.to', to, REVIEW_STATUSES)
+  }
+  if (!isTransitionActor(actor)) {
+    throw new EnumValueError('transition.actor', actor, TRANSITION_ACTORS)
+  }
+
   if (from === to) {
     return '来源与目标状态相同，无需转移'
   }
