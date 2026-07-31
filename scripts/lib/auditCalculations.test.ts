@@ -128,7 +128,7 @@ describe('computeLegacyMarkdownStats', () => {
 
   it('依 <!-- 学习于 ... --> 標記計算學習紀錄數與含使用者識別的筆數', () => {
     const content =
-      '<!-- 学习于 2026-06-24T11:06:57.253Z | 用户: Linvin -->\n內容一\n' +
+      '<!-- 学习于 2026-06-24T11:06:57.253Z | 用户: test-user -->\n內容一\n' +
       '<!-- 学习于 2026-06-25T00:00:00.000Z -->\n內容二\n'
     const stats = computeLegacyMarkdownStats(content)
     assert.equal(stats.entryCount, 2)
