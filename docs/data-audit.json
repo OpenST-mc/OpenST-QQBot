@@ -160,8 +160,12 @@
       "knownDefects": [
         {
           "id": "D1",
-          "description": "src/services/data.ts 的 loadGlossary() 讀取 term/术语/definition/定义 欄位，但實際表頭無此名稱，全部列映射為空字串",
-          "active": true
+          "description": "src/services/data.ts 的 loadGlossary() 讀取 term/术语 與 definition/定义 欄位，任一欄缺失即無法完整載入，對應列會映射為空字串",
+          "active": true,
+          "missingFields": [
+            "term/术语",
+            "definition/定义"
+          ]
         }
       ]
     },

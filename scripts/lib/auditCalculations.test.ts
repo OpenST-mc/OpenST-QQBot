@@ -234,21 +234,36 @@ describe('computeGlossaryStats', () => {
     assert.equal(stats.duplicateShortFormCount, 1)
   })
 
-  it('缺少 term/definition 欄位時判定 D1 缺陷仍存在', () => {
-    const stats = computeGlossaryStats(
-      [{ 'Short Form': 'BUD', 'Full Form (English)': 'Block Update Detector' }],
-      ['Short Form', 'Full Form (English)']
-    )
-    const d1 = stats.knownDefects.find((d) => d.id === 'D1')
+  const d1Of = (header: string[]) =>
+    computeGlossaryStats([], header).knownDefects.find((d) => d.id === 'D1')
+
+  it('兩欄都缺時判定 D1 缺陷仍存在，並列出兩個缺欄', () => {
+    const d1 = d1Of(['Short Form', 'Full Form (English)'])
     assert.equal(d1?.active, true)
+    assert.deepEqual(d1?.missingFields, ['term/术语', 'definition/定义'])
   })
 
-  it('欄位改名為 term/definition 後判定 D1 缺陷已消失', () => {
-    const stats = computeGlossaryStats(
-      [{ 'Short Form': 'BUD', 'Full Form (English)': 'x', term: 'BUD', definition: 'x' }],
-      ['Short Form', 'Full Form (English)', 'term', 'definition']
-    )
-    const d1 = stats.knownDefects.find((d) => d.id === 'D1')
+  // loadGlossary() 各自獨立讀取兩欄，只補一邊仍然壞掉，不可判定為已修復
+  it('只有 term 而缺 definition 時，D1 仍判定為存在', () => {
+    const d1 = d1Of(['term'])
+    assert.equal(d1?.active, true)
+    assert.deepEqual(d1?.missingFields, ['definition/定义'])
+  })
+
+  it('只有 definition 而缺 term 時，D1 仍判定為存在', () => {
+    const d1 = d1Of(['definition'])
+    assert.equal(d1?.active, true)
+    assert.deepEqual(d1?.missingFields, ['term/术语'])
+  })
+
+  it('兩欄齊備後才判定 D1 缺陷已消失', () => {
+    const d1 = d1Of(['Short Form', 'term', 'definition'])
+    assert.equal(d1?.active, false)
+    assert.deepEqual(d1?.missingFields, [])
+  })
+
+  it('中文欄名 术语/定义 同樣視為齊備', () => {
+    const d1 = d1Of(['术语', '定义'])
     assert.equal(d1?.active, false)
   })
 })

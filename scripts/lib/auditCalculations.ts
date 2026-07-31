@@ -285,19 +285,30 @@ export interface KnownDefectStatus {
   id: string
   description: string
   active: boolean
+  missingFields: string[]
 }
 
+// loadGlossary() 是各自獨立讀取 term 與 definition 的，因此只要有一邊缺欄，
+// 缺陷就仍然存在——必須用 OR 而非 AND 判斷，否則補上單一欄位就會謊報已修復：
+//   只有 term  ：definition 全空，詞彙表對回答沒有貢獻
+//   只有 definition：term 全空，而 matchGlossaryTerms() 用 includes(entry.term)
+//                    比對，空字串會命中任何輸入，等於整份詞彙表誤匹配
 function detectD1(header: string[]): KnownDefectStatus {
-  const termFieldMissing = !header.includes('term') && !header.includes('术语')
-  const definitionFieldMissing =
-    !header.includes('definition') && !header.includes('定义')
+  const missingFields: string[] = []
+  if (!header.includes('term') && !header.includes('术语')) {
+    missingFields.push('term/术语')
+  }
+  if (!header.includes('definition') && !header.includes('定义')) {
+    missingFields.push('definition/定义')
+  }
 
   return {
     id: 'D1',
     description:
-      'src/services/data.ts 的 loadGlossary() 讀取 term/术语/definition/定义 欄位，' +
-      '但實際表頭無此名稱，全部列映射為空字串',
-    active: termFieldMissing && definitionFieldMissing
+      'src/services/data.ts 的 loadGlossary() 讀取 term/术语 與 definition/定义 欄位，' +
+      '任一欄缺失即無法完整載入，對應列會映射為空字串',
+    active: missingFields.length > 0,
+    missingFields
   }
 }
 
