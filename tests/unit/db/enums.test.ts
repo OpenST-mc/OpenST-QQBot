@@ -4,6 +4,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   EnumValueError,
+  REVIEW_DECISIONS,
+  REVIEW_STATUS_TRANSITIONS,
   assertReviewStatus,
   blocksMaterialize,
   candidateTypeBlocksMaterialize,
@@ -31,6 +33,18 @@ test('后台作业不得单方面裁决争议或废弃已核准内容', () => {
   assert.equal(canTransitionReviewStatus('disputed', 'rejected', 'reviewer'), true)
 })
 
+// 上一个案例之所以成立，前提是每个转移目标都属于 REVIEW_DECISIONS，
+// 因而全部落在 REVIEWER_ONLY_TO 的保护内；新增目标状态时这里会先失败
+test('转移表不得出现审核决定以外的目标状态', () => {
+  const targets = new Set(Object.values(REVIEW_STATUS_TRANSITIONS).flat())
+  for (const target of targets) {
+    assert.ok(
+      (REVIEW_DECISIONS as readonly string[]).includes(target),
+      `${target} 不是审核决定，system 将可绕过审核推动此转移`
+    )
+  }
+})
+
 test('被拒和废弃内容不能直接恢复', () => {
   assert.equal(canTransitionReviewStatus('rejected', 'approved', 'reviewer'), false)
   assert.equal(canTransitionReviewStatus('deprecated', 'pending', 'reviewer'), false)
@@ -39,7 +53,6 @@ test('被拒和废弃内容不能直接恢复', () => {
 test('不可用或待确认质量旗标不会 materialize', () => {
   assert.equal(blocksMaterialize('empty'), true)
   assert.equal(blocksMaterialize('conflicting_fact'), true)
-  assert.equal(blocksMaterialize('invalid_ai_output'), true)
   assert.equal(blocksMaterialize('broken_link'), false)
 })
 

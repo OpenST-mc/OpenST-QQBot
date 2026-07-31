@@ -79,9 +79,12 @@ export const BLOCKING_QUALITY_FLAGS: readonly QualityFlag[] = [
   'not_found',
   'duplicate_exact',
   'unsupported_format',
-  'parse_error',
-  'invalid_ai_output'
+  'parse_error'
 ]
+
+// invalid_ai_output 不列入上表：依 document-ingestion.md 第 7.3 节，AI 回复不合法时
+// 根本不建立候选，该旗标挂在 Raw 资产与 ai_runs 上，不会出现在候选身上
+// 强制点是「不建立候选」，不是 materialize 阶段的过滤
 
 // 只建立 needs_review 候选、永不 materialize 的旗标
 // 内容有价值但语意需人工厘清，与阻挡旗标的处理结果不同
