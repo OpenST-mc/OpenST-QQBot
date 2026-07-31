@@ -387,15 +387,24 @@ export const assertExperimentEvidenceType = createAssert(
 
 // 是否阻止候选自动 materialize 为 pending 项目
 // 两类旗标都不得 materialize，但只有阻挡旗标会让内容完全不进入候选区
+// flag 通常直接来自 AI JSON 的 qualityFlags 字段，未知值必须报错而非静默放行：
+// materialize 是唯一防止未审核内容进入 Answer Index 的关卡，fail-open 比 fail-closed
+// 危险得多——沉默地把陌生旗标当成安全值，会让格式漂移或拼写错误的内容绕过审核
 export function blocksMaterialize(flag: QualityFlag): boolean {
+  if (!isQualityFlag(flag)) {
+    throw new EnumValueError('quality_flag', flag, QUALITY_FLAGS)
+  }
   return (
     BLOCKING_QUALITY_FLAGS.includes(flag) ||
     NEEDS_REVIEW_QUALITY_FLAGS.includes(flag)
   )
 }
 
-// 候选类型本身是否禁止 materialize
+// 候选类型本身是否禁止 materialize，同样来自 AI JSON 的 candidateType 字段
 export function candidateTypeBlocksMaterialize(type: CandidateType): boolean {
+  if (!isCandidateType(type)) {
+    throw new EnumValueError('candidate_type', type, CANDIDATE_TYPES)
+  }
   return NON_MATERIALIZABLE_CANDIDATE_TYPES.includes(type)
 }
 

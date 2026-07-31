@@ -3,7 +3,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  CandidateType,
   EnumValueError,
+  QualityFlag,
   REVIEW_DECISIONS,
   REVIEW_STATUS_TRANSITIONS,
   ReviewStatus,
@@ -82,4 +84,17 @@ test('discard 与 needs_review 候选不会 materialize', () => {
   assert.equal(candidateTypeBlocksMaterialize('discard'), true)
   assert.equal(candidateTypeBlocksMaterialize('needs_review'), true)
   assert.equal(candidateTypeBlocksMaterialize('term'), false)
+})
+
+// AI JSON 的 qualityFlags/candidateType 是任意字符串，未知值必须报错而非当作安全值
+// 静默放行会让格式漂移或拼写错误的内容绕过 materialize 唯一的审核关卡
+test('未知质量旗标或候选类型不会被当成可 materialize', () => {
+  assert.throws(
+    () => blocksMaterialize('made_up_flag' as QualityFlag),
+    EnumValueError
+  )
+  assert.throws(
+    () => candidateTypeBlocksMaterialize('made_up_type' as CandidateType),
+    EnumValueError
+  )
 })
