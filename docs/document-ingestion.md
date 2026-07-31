@@ -255,8 +255,17 @@ Pro 的輸出仍然只是 `extraction_candidates`，不得直接建立正式資�
 阻擋旗標（不 materialize）：`empty`、`stub`、`not_found`、
 `duplicate_exact`、`unsupported_format`、`parse_error`。
 
-`navigation` 是區段級旗標，只排除對應區段；它不得阻擋同一 Raw 資產中其他有效候選的
-materialize。整份資產沒有可切 Chunk 時，R4 直接輸出 `excluded`，不建立候選。
+這份清單指的是**候選自身內容**帶有該旗標，即候選的 `normalizedContent`
+本身就來自被排除的區段。第 5.3 節的確定性規則已在 AI 呼叫前排除
+`stub`／`navigation` 區段的正文，AI 不會拿到那些區段的內容，因此一個合法候選的
+`normalizedContent` 不可能真的「是」stub 或 navigation。
+
+`stub`／`navigation` 仍可能出現在候選的 `qualityFlags` 中，但此時代表 AI 在
+`rationale` 附帶說明「同一 Raw 資產內還有其他被排除的兄弟區段」，屬於**資訊性註記**，
+不阻擋這個候選本身的 materialize。判斷方式：候選的 `normalizedContent`
+只要完整來自未被 5.3 節排除的區段，`qualityFlags` 中的 `stub`／`navigation`
+就不阻擋該候選；只有當候選本身無法產出任何非排除區段的內容時，
+第 5.2 節的 R4 才會在確定性層直接輸出 `excluded`，此時根本不會呼叫 AI 產生候選。
 
 只建立 `needs_review` 候選、永不 materialize：`possible_typo`、`mixed_concepts`、
 `conflicting_fact`。
@@ -326,9 +335,26 @@ Fixture 寫入時不可能知道 `raw_assets.id`，因此 `response.rawAssetId` 
 1. 先驗證 Fixture 中的值為 `0`（不是 `0` 表示 Fixture 被手動竄改，測試失敗）。
 2. 以本次插入的實際 `raw_assets.id` 取代後，才交給 schema 與回鏈驗證。
 
+`document_triage` 與 `document_quality` 只處理單一 Raw 資產，`rawAssetId` 佔位規則
+已足夠。`conflict_review` 額外比較 `compared_with` 列出的其他資產，其
+`evidenceRawIds` 可能指向**多個不同**的 Raw 資產，僅有一個 `0` 佔位無法區分是
+輸入資產本身還是 `compared_with` 中的哪一筆。
+
+`conflict_review` 的 `evidenceRawIds` 佔位改用**索引**，定義為在下列固定順序中的
+0-based 位置：
+
+```text
+[ input_hash 對應的資產, ...compared_with 依陣列順序列出的資產 ]
+```
+
+即索引 `0` 固定代表 `input_hash` 本身的資產；索引 `1` 代表 `compared_with[0]`；
+索引 `2` 代表 `compared_with[1]`，以此類推。重播 runner 依此順序把索引換成
+實際插入的 `raw_assets.id` 後，才交給 schema 與回鏈驗證。`evidenceRawIds`
+中的值不得超出 `compared_with.length` 這個範圍，超出視為 `invalid_ai_output`。
+
 ### 目前 Fixture 的來歷
 
-`ai-responses/` 下的 6 份為**人工撰寫並核准**的種子契約，不是模型錄製輸出。
+`ai-responses/` 下的 7 份為**人工撰寫並核准**的種子契約，不是模型錄製輸出。
 它們定義「合格輸出長什麼樣」，供規則層在管線可執行前就能被測試。
 
 T2.4 匯入器實作後，必須以真實 Flash／Pro 輸出重新錄製同一批 `input_hash` 的回覆，

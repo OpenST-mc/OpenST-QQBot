@@ -19,7 +19,7 @@
           },
           {
             "statement": "冷却为 8gt",
-            "evidenceRawIds": [0],
+            "evidenceRawIds": [1],
             "declaredScope": "Java 1.21 原版"
           }
         ],
@@ -30,7 +30,7 @@
     "supportingEvidence": [
       {
         "statement": "冷却为 8gt",
-        "evidenceRawIds": [0],
+        "evidenceRawIds": [1],
         "note": "来源限定 Java 1.21 原版，并附对应代码片段。"
       }
     ],
