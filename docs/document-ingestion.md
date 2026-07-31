@@ -43,6 +43,21 @@ Wiki 匯出 HTML 與純文字教學。
 
 `encoding` 欄位記錄偵測到的原始編碼與是否含 BOM，供還原與稽核使用。
 
+**可重現性與其限制**：`raw_assets` 只存路徑與雜湊、不複製正文，是計畫既有決定
+（見計畫「Raw 內容」「SQLite 備份」兩項政策），T0.5 不另建快照機制。此設計的
+可重現性因此完全依賴 `public/database/raw/` 本身受 git 版控：只要每次檔案異動
+都經正常 commit，任一歷史 `content_hash` 都能用 `git log -p` 或對應 commit 的
+checkout 還原，不需要資料庫額外保存正文。
+
+這個前提有兩個目前未涵蓋的缺口，留給對應 Track 處理：
+
+1. 若 Raw 檔案在未經 commit 的情況下被直接覆寫或刪除，`raw_assets` 中舊
+   `content_hash` 對應的內容即不可逆遺失；掃描器偵測到雜湊改變時只會建立新資產，
+   不會警告舊內容已消失。
+2. `/learn` 等社群投稿如何落地為 Raw 檔案（是否經同一份 `public/database/raw/`
+   目錄、是否同樣受 git 版控）不屬本文件範圍，由負責 `/learn` 寫入路徑的 Track
+   （T1.2a 或 T3.6 一類）定義並確保同等的可重現性保證。
+
 ## 3. 路徑契約
 
 - 本文件與 Fixture 中的 Raw 相對路徑，一律以 `public/database/raw/` 為根，使用正斜線。
@@ -150,6 +165,14 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 
 文件的 `expected_completed_headings` 與 `excluded_headings` 即由此規則決定。
 
+**這兩個欄位只代表第 5.3 節確定性層的判定結果，與該區段最終是否真的產生
+`document_chunk` 是兩回事。** 一個區段出現在 `expected_completed_headings`
+只表示它通過 S1–S4，內容被交給 AI；它是否真的被切成 chunk，還要看
+第 8 節的 materialize 結果——若對應候選是 `needs_review` 或其他不 materialize
+的情形，區段依然合格但不會有 chunk。要知道某案例是否真的產生 chunk，
+必須同時看 `expected_completed_headings`（是否非空）與 `expected_outcome`
+（是否為 `pending`）兩個欄位；只看前者會誤判。
+
 ### 5.4 `broken_link` 判定
 
 只檢查站內相對連結與圖片（`./`、`../` 或不含 scheme 的路徑），以 Raw 目錄實際檔案存在性判定。
@@ -172,7 +195,14 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 
 1. 以 `(source_id, content_hash, logical_record_no)` 唯一索引擋下同來源重複匯入。
 2. 跨路徑或跨來源出現相同正規化雜湊時，保留**所有** Raw 資產，但只選一個 canonical。
-3. canonical 選擇規則固定且可重現：相對路徑字典序最小者。
+3. canonical 選擇為固定且可重現的複合排序鍵，依序比較直到分出唯一結果：
+   1. `source_key` 字典序最小者（見 T0.1 來源政策）。
+   2. 相對路徑字典序最小者。
+   3. 仍相同時（理論上不可能，因 `asset_key` 已含 `source_key`+`relative_path`+
+      `content_hash` 三者且要求唯一）視為資料錯誤，匯入必須中止並報錯，
+      不得任意選一筆。
+   跨來源、相對路徑相同的重複（例如未來新增鏡像來源與 `gtmc` 都有
+   `BlockUpdate/README.md`）僅靠相對路徑無法排序，故 `source_key` 為第一鍵。
 4. 其餘副本結果為 `provenance_only`，只建立來源追溯關係，不建立文件、Chunk 或向量。
 5. 近似重複（`duplicate_near`）本期只標旗標供人工檢視，不自動處理，也不列入 Fixture 契約。
 6. 去重**優先於**內容品質規則（R2–R6）。判定為 `duplicate_exact` 的資產只記錄該旗標，
@@ -201,17 +231,45 @@ S3 的 120 字元下限套用於所有區段，包含 `概述`、`序`、`引言
 }
 ```
 
-欄位名稱與 KNOWLEDGE_SYSTEM_PLAN.md 的「AI JSON 契約」一致，一律 camelCase。
-schema 採 JSON Schema Draft 2020-12 並設定 `additionalProperties: false`；
-`candidates` 可為空陣列，最多 20 筆；單一候選正文上限 1,500 Unicode code points，
-`confidence` 介於 0 與 1。單一 Raw 資產可產生零至多筆候選，且候選不得重複帶
-`rawAssetId`。
+欄位名稱一律 camelCase，schema 採 JSON Schema Draft 2020-12 並設定
+`additionalProperties: false`；`candidates` 可為空陣列，最多 20 筆；單一候選正文
+上限 1,500 Unicode code points，`confidence` 介於 0 與 1。單一 Raw 資產可產生零至
+多筆候選，且候選不得重複帶 `rawAssetId`。
 
-`document_quality` 與 `conflict_review` 的頂層欄位不同，各自見計畫的契約表：
-前者輸出 `documentOutcome`、`completedHeadings`、`excludedHeadings`、`qualityFlags`、
-`versionCandidates`、`claimCandidates`、`rationale`、`rawAssetId`；
-後者輸出 `conflicts`、`supportingEvidence`、`contradictingEvidence`、
-`missingEvidence`、`recommendation`、`rationale`。
+`document_quality` 與 `conflict_review` 的頂層欄位不同：
+
+```text
+// document_quality
+{
+  documentOutcome: string,
+  completedHeadings: string[],
+  excludedHeadings: string[],
+  qualityFlags: string[],
+  versionCandidates: string[],
+  claimCandidates: string[],
+  rationale: string,
+  rawAssetId: number
+}
+
+// conflict_review
+{
+  conflicts: Array<{ topic, positions, resolvable, reason }>,
+  supportingEvidence: Array<{ statement, evidenceRawIds, note }>,
+  contradictingEvidence: Array<{ statement, evidenceRawIds, note }>,
+  missingEvidence: string[],
+  recommendation: string,
+  rationale: string
+}
+```
+
+**權威來源與跨分支依賴**：以上欄位名稱抄錄自 `KNOWLEDGE_SYSTEM_PLAN.md`
+「AI JSON 契約」一節。該檔案目前只存在於尚未合併的 `docs/knowledge-system-plan`
+分支，不在本分支（`feat/t0.5-document-ingestion`）與 `main` 的歷史中，單獨檢出
+本分支看不到被引用的來源。因此本節不再只用「見計畫的契約表」這種指標式寫法，
+改為直接內嵌完整欄位定義，使本文件在計畫分支合併前也能自足驗證。
+
+計畫分支合併後，若其「AI JSON 契約」一節與本節文字不一致，以計畫為準，
+必須回頭修正本文件，不可反向修改計畫遷就本文件既有 Fixture。
 
 規則：
 
@@ -327,6 +385,24 @@ AI 回覆 Fixture 的檔名為**輸入 Raw 內容的正規化 SHA-256**，不使
 模型升級或 prompt 變更時，舊 Fixture **不覆蓋**；以新版本檔案並列保存，
 由評測題庫（T0.4）指定採用版本。
 
+### Raw 根路徑佔位
+
+`document-expected.json` 的 `roots.raw`（`public/database/raw/`）是 T1.2b
+完成後的目標路徑；T1.2b 屬於本文件不適用的範圍之外的 Track（見文件開頭），
+本 Track 完成時尚未執行，磁碟上不存在該目錄。
+
+因此 `document-expected.json` 額外提供 `roots.raw_pending_t1_2b` 與
+`raw_root_status` 兩個結構化欄位，而非只靠自由文字說明。重播 runner 解析
+`source_root: 'raw'` 的案例時：
+
+1. 讀取 `raw_root_status`。
+2. 若為 `pending_t1_2b`，以 `roots.raw_pending_t1_2b` 取代 `roots.raw` 作為
+   實際檔案根目錄。
+3. 若為 `migrated`（或該欄位不存在），使用 `roots.raw`。
+
+T1.2b 的 PR 必須同時把 `raw_root_status` 改為 `migrated` 並移除
+`raw_pending_t1_2b` 欄位；`raw_content_hash` 不受路徑遷移影響，不需重算。
+
 ### Fixture 的 Raw 回鏈佔位
 
 Fixture 寫入時不可能知道 `raw_assets.id`，因此 `response.rawAssetId` 一律固定為 `0`。
@@ -363,6 +439,29 @@ Fixture 寫入時不可能知道 `raw_assets.id`，因此 `response.rawAssetId` 
 T2.4 匯入器實作後，必須以真實 Flash／Pro 輸出重新錄製同一批 `input_hash` 的回覆，
 與種子契約逐欄比對；差異須由知識審核者裁決後才更新 Fixture。
 
+## 10. 目前 Fixture 涵蓋的案例
+
+| 案例 | 來源 | 驗證重點 |
+| --- | --- | --- |
+| 完整技術文章 | `gtmc-database/MicroTiming/01-刻与刻间时序.md` | 標題路徑、公式與圖片保留、Claim 候選 |
+| 序言＋目錄頁 | `gtmc-database/LoadingTicket/00-序.md` | 引言低於內容下限、目錄與參考文獻為連結清單 |
+| 部分完成文件 | `gtmc-database/LoadingTicket/02-加载票系统的运作细节.md` | `stub` 區段不進索引，已完成段落保留 |
+| 外部連結清單 | `gtmc-database/LoadingTicket/a-附页-辅助mod.md` | 外部連結不檢查；圖片與程式碼豁免內容下限 |
+| 譯名表格 | `gtmc-database/LoadingTicket/b-附页-一些译名.md` | 表格欄列關係保留、術語候選 |
+| 純導航頁 | `gtmc-database/Appendix/00-专有名词解释.md` | `navigation` 排除 |
+| 導航頁＋失效連結 | `gtmc-database/BlockUpdate/README.md` | `navigation` + `broken_link` 併存 |
+| 404 頁 | `gtmc-database/EntityAI/404.md` | `not_found` 排除 |
+| 404 重複頁 | `gtmc-database/EntityMove/404.md` | `duplicate_exact` → `provenance_only` |
+| 僅標題空文件 | `gtmc-database/EntityAI/00-序.md` | `empty` 排除 |
+| 空文件重複 | `gtmc-database/EntityMove/00-序.md` | 空內容同時重複時仍走 provenance |
+| Wiki 匯出 HTML | `samples/wiki-export-hopper.html` | DOM 裁剪、表格與程式碼保留 |
+| 純文字社群筆記 | `samples/community-note-hopper.txt` | 版本未知＋衝突事實 → `needs_review` |
+| `/learn` 投稿 | `samples/learn-submission-observer.txt` | 自帶版本的社群投稿 → `pending`，永不 `approved` |
+
+最後兩例互為衝突對：HTML 樣本敘述漏斗冷卻 8gt 且限定 Java 1.21，
+文字樣本主張固定 7gt 且宣稱全版本適用，用於驗證 `conflicting_fact` 與 Pro 介入路徑。
+
+
 ## 11. 對 T0.2 枚舉的新增需求
 
 本文件用到兩個 KNOWLEDGE_SYSTEM_PLAN.md 的品質旗標清單尚未包含的值：
@@ -380,8 +479,12 @@ T0.2 建立 `src/db/enums.ts` 時必須一併納入這四個值，否則規則�
 
 ## 12. 與 KNOWLEDGE_SYSTEM_PLAN.md 同步
 
-本文件與計畫的 T0.5 條文一致：Raw 使用正規化內容 SHA-256、導航依區段判定，
-`document_triage` 以 Raw 資產為單位輸出候選陣列。
+本文件與 `docs/knowledge-system-plan` 分支（commit `7ed20a0`）的 T0.5 條文一致：
+Raw 使用正規化內容 SHA-256、導航依區段判定、`document_triage` 以 Raw 資產為單位
+輸出候選陣列。該分支尚未合併至 `main`，本分支的歷史中不含
+`KNOWLEDGE_SYSTEM_PLAN.md`；上述「一致」僅代表撰寫本節時兩份文件的內容相符，
+不代表本分支能自行驗證此事。第 7.1 節已將 AI 契約欄位直接內嵌於本文件，
+避免驗證本文件時需要跨分支查閱。
 
 另有兩項尚未具備實作條件的暫定值，實作對應 Track 時必須修正：
 
@@ -407,25 +510,4 @@ prompt 與 schema 檔案屬 T2.4 產出，本 Track 無法計算，故先以可�
 3. 由知識審核者核准。
 
 缺少任一項的變更不得合併。
-
-## 10. 目前 Fixture 涵蓋的案例
-
-| 案例 | 來源 | 驗證重點 |
-| --- | --- | --- |
-| 完整技術文章 | `gtmc-database/MicroTiming/01-刻与刻间时序.md` | 標題路徑、公式與圖片保留、Claim 候選 |
-| 序言＋目錄頁 | `gtmc-database/LoadingTicket/00-序.md` | 引言低於內容下限、目錄與參考文獻為連結清單 |
-| 部分完成文件 | `gtmc-database/LoadingTicket/02-加载票系统的运作细节.md` | `stub` 區段不進索引，已完成段落保留 |
-| 外部連結清單 | `gtmc-database/LoadingTicket/a-附页-辅助mod.md` | 外部連結不檢查；圖片與程式碼豁免內容下限 |
-| 譯名表格 | `gtmc-database/LoadingTicket/b-附页-一些译名.md` | 表格欄列關係保留、術語候選 |
-| 純導航頁 | `gtmc-database/Appendix/00-专有名词解释.md` | `navigation` 排除 |
-| 導航頁＋失效連結 | `gtmc-database/BlockUpdate/README.md` | `navigation` + `broken_link` 併存 |
-| 404 頁 | `gtmc-database/EntityAI/404.md` | `not_found` 排除 |
-| 404 重複頁 | `gtmc-database/EntityMove/404.md` | `duplicate_exact` → `provenance_only` |
-| 僅標題空文件 | `gtmc-database/EntityAI/00-序.md` | `empty` 排除 |
-| 空文件重複 | `gtmc-database/EntityMove/00-序.md` | 空內容同時重複時仍走 provenance |
-| Wiki 匯出 HTML | `samples/wiki-export-hopper.html` | DOM 裁剪、表格與程式碼保留 |
-| 純文字社群筆記 | `samples/community-note-hopper.txt` | 版本未知＋衝突事實 → `needs_review` |
-| `/learn` 投稿 | `samples/learn-submission-observer.txt` | 自帶版本的社群投稿 → `pending`，永不 `approved` |
-
-最後兩例互為衝突對：HTML 樣本敘述漏斗冷卻 8gt 且限定 Java 1.21，
-文字樣本主張固定 7gt 且宣稱全版本適用，用於驗證 `conflicting_fact` 與 Pro 介入路徑。
+

@@ -3,11 +3,13 @@
   "ingestionRulesVersion": "t0.5-1",
   "roots": {
     "raw": "public/database/raw/",
+    "raw_pending_t1_2b": "public/database/",
     "fixture": "eval/fixtures/triage/samples/"
   },
+  "raw_root_status": "pending_t1_2b",
   "approved_by": "woodengrass",
   "approved_at": "2026-07-28T00:00:00.000Z",
-  "notes": "raw_content_hash 為 docs/document-ingestion.md 第 2 節定義的正規化 SHA-256，非原始位元組雜湊。T1.2b 尚未執行，raw 根實際仍為 public/database/；T1.2b 搬移完成後路徑即與本檔一致，雜湊不變。",
+  "notes": "raw_content_hash 為 docs/document-ingestion.md 第 2 節定義的正規化 SHA-256，非原始位元組雜湊。roots.raw 是 T1.2b 完成後的目標路徑；raw_root_status='pending_t1_2b' 時，重播 runner 必須改用 roots.raw_pending_t1_2b 解析 source_root='raw' 的案例。T1.2b 落地時，該 Track 的 PR 須將 raw_root_status 改為 'migrated' 並移除 raw_pending_t1_2b 欄位；本檔雜湊值不受路徑遷移影響。",
   "cases": [
     {
       "source_root": "raw",
@@ -242,7 +244,7 @@
       "expected_candidate_type": "needs_review",
       "required_flags": ["conflicting_fact"],
       "forbidden_flags": ["empty", "navigation", "not_found"],
-      "expected_completed_headings": [],
+      "expected_completed_headings": ["漏斗限速笔记"],
       "excluded_headings": [],
       "broken_links": [],
       "public_visibility": "internal",
