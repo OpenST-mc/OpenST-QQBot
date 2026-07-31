@@ -105,6 +105,11 @@ describe('buildReport', () => {
     assert.equal(report.sources.legacy_dictionary_txt.file, 'public/database/Dictionary.txt')
 
     assert.equal(report.sources.techmc_glossary.encoding, 'utf-8-bom')
+    assert.deepEqual(report.sources.techmc_glossary.columns, [
+      'Category',
+      'Short Form',
+      'Full Form (English)'
+    ])
     assert.equal(report.sources.techmc_glossary.rowCount, 2)
     assert.equal(report.sources.techmc_glossary.emptyShortFormCount, 1)
 
@@ -113,6 +118,22 @@ describe('buildReport', () => {
     assert.deepEqual(report.sources.gtmc.encodingBreakdown, { 'utf-8': 3, 'utf-8-bom': 0 })
     assert.equal(report.sources.gtmc.duplicateWithLegacyCsvCount, 0)
     assert.equal(report.sources.gtmc.brokenLinkCount, 1)
+  })
+
+  // 欄名必須取自實際表頭列，而非第一筆資料的鍵；否則沒有資料列時會誤報 0 欄，
+  // 連帶讓 D1 誤判成欄位缺失
+  it('詞彙表只有表頭沒有資料列時，仍正確登記欄名與 D1 狀態', () => {
+    writeFileSync(
+      join(rootDir, 'public', 'database', 'TechMC Glossary.csv'),
+      '﻿Category,term,definition\n'
+    )
+
+    const glossary = buildReport(rootDir).sources.techmc_glossary
+    assert.equal(glossary.rowCount, 0)
+    assert.deepEqual(glossary.columns, ['Category', 'term', 'definition'])
+    assert.equal(glossary.columnCount, 3)
+    const d1 = glossary.knownDefects.find((d) => d.id === 'D1')
+    assert.equal(d1?.active, false, 'term 與 definition 都在表頭，D1 不應判定為存在')
   })
 
   it('GTMC 內容與 database.csv 逐字重複時計入 duplicateWithLegacyCsvCount', () => {
@@ -244,6 +265,40 @@ describe('runAudit', () => {
     const report = log.join('\n')
     assert.ok(report.includes('fieldInventory'))
     assert.ok(report.includes('newOptionalField'))
+  })
+
+  // 「來源新增」是 T0.3 點名要報告的情境，不能因為雜湊清單寫死檔名而漏掉
+  it('在資料根目錄新增來源檔案時會被偵測到', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+
+    writeFileSync(join(rootDir, 'public', 'database', 'newsource.csv'), 'a,b\n1,2\n')
+
+    const { log, io } = makeIo()
+    assert.equal(runAudit(rootDir, [], io), 1)
+    assert.ok(log.some((line) => line.includes('newsource.csv')))
+  })
+
+  it('執行期產生的檔案不納入雜湊，不會造成假差異', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+
+    const db = join(rootDir, 'public', 'database')
+    writeFileSync(join(db, 'submissions.json'), '{"generated":true}')
+    writeFileSync(join(db, 'knowledge.db'), 'binary')
+    writeFileSync(join(db, 'knowledge.db-wal'), 'wal')
+
+    const { log, io } = makeIo()
+    assert.equal(runAudit(rootDir, [], io), 0, log.join('\n'))
+  })
+
+  // 來源檔消失是變更的一種，要有可讀報告而不是 ENOENT 堆疊
+  it('來源檔被刪除時回傳非零並輸出可讀訊息，不拋出未處理例外', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+    rmSync(join(rootDir, 'public', 'database', 'database.csv'))
+
+    const { error, io } = makeIo()
+    const exitCode = runAudit(rootDir, [], io)
+    assert.equal(exitCode, 1)
+    assert.ok(error.some((line) => line.includes('無法完成資料盤點')))
   })
 
   it('逐檔雜湊可偵測新增與刪除來源檔案', () => {

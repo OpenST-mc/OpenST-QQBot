@@ -54,18 +54,20 @@ function summarizeEncodings(encodings: SourceEncoding[]): SourceEncoding | 'mixe
 // 彙總統計無法偵測所有內容變更：改寫一段正文而不動標題數、連結數與筆數時，
 // 統計完全相同。T0.3 要求「來源新增或變更時必須輸出差異報告，不可靜默通過」，
 // 因此另外記錄每個來源檔案的 SHA-256，讓任何內容變更都能被逐檔指名。
-const HASHED_SOURCE_FILES = [
-  'public/database/database.json',
-  'public/database/database.csv',
-  'public/database/database.md',
-  'public/database/Dictionary.txt',
-  'public/database/TechMC Glossary.csv'
-]
+// 掃描整個資料根目錄而非固定清單：T0.3 要求「來源新增或變更時」都要報告，
+// 寫死檔名會讓日後新增的來源檔案完全不被察覺而靜默通過。
+const HASHED_SOURCE_ROOT = 'public/database'
 
-const HASHED_SOURCE_DIRS = [
-  'public/database/dictionary',
-  'public/database/gtmc-database'
-]
+// 執行期產生的檔案不是來源資料，會隨執行變動，納入雜湊只會造成假差異。
+// knowledge.db 及其 -wal/-shm 為 Phase 1 之後才出現，先在此排除。
+function isGeneratedArtifact(relPath: string): boolean {
+  const name = relPath.split('/').pop() || ''
+  return (
+    name === 'submissions.json' ||
+    name === 'import-manifest.json' ||
+    name.startsWith('knowledge.db')
+  )
+}
 
 // 純文字來源以正規化換行後的內容雜湊；圖片等二進位資產以原始位元組雜湊
 const TEXT_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.csv', '.txt', '.json'])
@@ -96,15 +98,13 @@ function walkAllFiles(dir: string): string[] {
 
 // 以 POSIX 相對路徑為鍵並排序，確保跨平台與跨執行的輸出順序一致
 function collectSourceFileHashes(rootDir: string): Record<string, string> {
-  const absolutePaths = [
-    ...HASHED_SOURCE_FILES.map((relPath) => join(rootDir, relPath)),
-    ...HASHED_SOURCE_DIRS.flatMap((relDir) => walkAllFiles(join(rootDir, relDir)))
-  ]
+  const keys = walkAllFiles(join(rootDir, HASHED_SOURCE_ROOT))
+    .map((absolutePath) => relative(rootDir, absolutePath).split(sep).join('/'))
+    .filter((relPath) => !isGeneratedArtifact(relPath))
+    .sort()
 
   const hashes: Record<string, string> = {}
-  for (const key of absolutePaths
-    .map((absolutePath) => relative(rootDir, absolutePath).split(sep).join('/'))
-    .sort()) {
+  for (const key of keys) {
     hashes[key] = hashSourceFile(join(rootDir, key))
   }
   return hashes
@@ -257,12 +257,17 @@ function auditGlossary(rootDir: string): GlossaryAudit {
   const encoding = detectEncoding(rawBuffer)
   const content = rawBuffer.toString('utf-8')
 
+  // 從實際表頭列取欄名，不能用 Object.keys(rows[0])：
+  // 只有表頭、沒有資料列時，那樣會回報 0 欄，並讓 D1 誤判為欄位缺失
+  let header: string[] = []
   const rows = parse(content, {
-    columns: true,
+    columns: (headerRow: string[]) => {
+      header = headerRow.map((column) => String(column))
+      return headerRow
+    },
     skip_empty_lines: true,
     bom: true
   }) as Array<Record<string, string>>
-  const header = rows.length > 0 ? Object.keys(rows[0]) : []
 
   return { file, encoding, columns: header, ...computeGlossaryStats(rows, header) }
 }
@@ -387,7 +392,17 @@ export interface AuditIo {
 export function runAudit(rootDir: string, argv: string[], io: AuditIo): number {
   const dataAuditPath = join(rootDir, 'docs', 'data-audit.json')
   const shouldWrite = argv.includes('--write')
-  const report = buildReport(rootDir)
+
+  // 來源檔被刪除或損壞是「來源變更」的一種，必須輸出可讀報告並以非零碼結束，
+  // 不能讓 ENOENT／JSON 解析錯誤以未處理例外的堆疊訊息中斷
+  let report: AuditReport
+  try {
+    report = buildReport(rootDir)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    io.error(`無法完成資料盤點（來源檔可能已刪除、無法讀取或格式損壞）：${detail}`)
+    return 1
+  }
 
   if (shouldWrite) {
     mkdirSync(dirname(dataAuditPath), { recursive: true })
