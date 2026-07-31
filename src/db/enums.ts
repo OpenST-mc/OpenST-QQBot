@@ -414,16 +414,17 @@ export const REVIEW_STATUS_TRANSITIONS: Readonly<
   rejected: [],
   // 废弃为终态，取代它的应是新条目而非原地改写
   deprecated: [],
+  // 争议只能由审核者裁决，三个出向都受 REVIEWER_ONLY_TO 保护
   disputed: ['approved', 'rejected', 'deprecated'],
   legacy_review: ['approved', 'rejected', 'deprecated']
 }
 
-// 出向转移一律需要人工审核者的来源状态
-const REVIEWER_ONLY_FROM: readonly ReviewStatus[] = ['legacy_review']
-
 // 只能由人工审核者写入的目标状态
-// 对应核心原则：AI 抽取、自动学习与导入产物都不得自行升格为已核准
-const REVIEWER_ONLY_TO: readonly ReviewStatus[] = ['approved']
+// 转移表的目标状态集合恰好等于 REVIEW_DECISIONS，而 reviews 表每笔决定都带
+// reviewer_id，因此每一次审核状态转移本身就是一次人工审核决定
+// 导入器、AI 与后台作业只能建立初始状态，不得推动任何转移：既不能升格为已核准，
+// 也不能把争议内容单方面拒绝或废弃，或把已核准内容废弃
+const REVIEWER_ONLY_TO: readonly ReviewStatus[] = REVIEW_DECISIONS
 
 // 建立时的合法初始状态
 // 注意这是建立而非转移，导入器可依来源政策直接建立 approved 的机器目录资料，
@@ -467,10 +468,6 @@ export function checkReviewStatusTransition(
 
   if (actor !== 'reviewer' && REVIEWER_ONLY_TO.includes(to)) {
     return `转为 ${to} 只能由人工审核者执行，导入器与 AI 只能产生候选或待审内容`
-  }
-
-  if (actor !== 'reviewer' && REVIEWER_ONLY_FROM.includes(from)) {
-    return `${from} 的内容只能由人工审核者转移`
   }
 
   return null

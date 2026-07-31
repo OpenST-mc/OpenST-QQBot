@@ -24,6 +24,13 @@ test('只有审核者可以将待审内容核准', () => {
   assert.equal(canTransitionReviewStatus('pending', 'approved', 'system'), false)
 })
 
+test('后台作业不得单方面裁决争议或废弃已核准内容', () => {
+  assert.equal(canTransitionReviewStatus('disputed', 'rejected', 'system'), false)
+  assert.equal(canTransitionReviewStatus('disputed', 'deprecated', 'system'), false)
+  assert.equal(canTransitionReviewStatus('approved', 'deprecated', 'system'), false)
+  assert.equal(canTransitionReviewStatus('disputed', 'rejected', 'reviewer'), true)
+})
+
 test('被拒和废弃内容不能直接恢复', () => {
   assert.equal(canTransitionReviewStatus('rejected', 'approved', 'reviewer'), false)
   assert.equal(canTransitionReviewStatus('deprecated', 'pending', 'reviewer'), false)
