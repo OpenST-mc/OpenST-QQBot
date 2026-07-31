@@ -61,9 +61,13 @@ function seedFixtureRepo(dir: string): void {
 
   const gtmcDir = join(dbDir, 'gtmc-database')
   mkdirSync(gtmcDir, { recursive: true })
+  const rootImageDir = join(dir, 'images')
+  mkdirSync(rootImageDir, { recursive: true })
+  writeFileSync(join(rootImageDir, 'present.png'), '')
   writeFileSync(
     join(gtmcDir, 'normal.md'),
-    `# 正常文件\n${'內容'.repeat(30)}\n![圖片](img/missing.png)`
+    `# 正常文件\n${'內容'.repeat(30)}\n[404 片段](./404.md#標題) ` +
+      '![根目錄圖片](/images/present.png) ![圖片](img/missing.png)'
   )
   writeFileSync(join(gtmcDir, '404.md'), '# 找不到頁面\n404')
   writeFileSync(join(gtmcDir, 'short.md'), '# 未完成\n待補')

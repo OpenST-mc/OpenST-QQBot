@@ -243,11 +243,12 @@ describe('detectEncoding', () => {
 })
 
 describe('extractRelativeLinkTargets', () => {
-  it('抓取相對連結與圖片目標，忽略 http(s) 與錨點', () => {
+  it('抓取本機目標、移除 fragment，並忽略外部連結與錨點', () => {
     const targets = extractRelativeLinkTargets(
-      '[本地文件](./a.md) ![圖片](img/b.png) [外部](https://example.com) [錨點](#section)'
+      '[本地文件](./a.md#section) ![圖片](/images/b.png) ' +
+        '[外部](https://example.com) [網路](//cdn.example.com/a.png) [錨點](#section)'
     )
-    assert.deepEqual(targets, ['./a.md', 'img/b.png'])
+    assert.deepEqual(targets, ['./a.md', '/images/b.png'])
   })
 
   it('沒有連結時回傳空陣列', () => {

@@ -226,7 +226,10 @@ function auditGtmc(rootDir: string, legacyCsvHashes: Set<string>): GtmcAudit {
 
     const fileDir = dirname(filePath)
     for (const target of extractRelativeLinkTargets(content)) {
-      if (!existsSync(join(fileDir, target))) {
+      const targetPath = target.startsWith('/')
+        ? join(rootDir, target.slice(1))
+        : join(fileDir, target)
+      if (!existsSync(targetPath)) {
         brokenLinkCount++
       }
     }

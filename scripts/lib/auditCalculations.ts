@@ -314,17 +314,26 @@ export function detectEncoding(buffer: Buffer): SourceEncoding {
   return hasUtf8Bom(buffer) ? 'utf-8-bom' : 'utf-8'
 }
 
-// 抓取 Markdown 連結與圖片的相對路徑目標，只檢查非 http(s)、非錨點連結
+// 抓取 Markdown 連結與圖片的本機目標，移除 fragment 供檔案存在性檢查
 export function extractRelativeLinkTargets(content: string): string[] {
   const targets: string[] = []
   const linkRegex = /!?\[[^\]]*]\(([^)]+)\)/g
   let match: RegExpExecArray | null
   while ((match = linkRegex.exec(content)) !== null) {
     const target = match[1].split(' ')[0].trim()
-    if (target === '' || /^https?:\/\//.test(target) || target.startsWith('#')) {
+    if (
+      target === '' ||
+      /^https?:\/\//.test(target) ||
+      target.startsWith('//') ||
+      target.startsWith('#')
+    ) {
       continue
     }
-    targets.push(target)
+
+    const pathWithoutFragment = target.split('#', 1)[0]
+    if (pathWithoutFragment !== '') {
+      targets.push(pathWithoutFragment)
+    }
   }
   return targets
 }
