@@ -34,12 +34,28 @@
 | source_key | type | display_name | creator | origin_url | license | license_url | visibility_default | trust_level | attribution_rule | public_export_rule | status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `gtmc` | document_collection | GTMC 技術文件 | 待補充（各文章作者不同，逐篇追溯） | 待補充 | CC BY-NC-SA 4.0 | 待補充 | public | medium | 顯示作品／文章名稱、可得作者、原始 URL、CC BY-NC-SA 4.0 與修改標記；找不到作者時留空 | 每次使用 GTMC 證據的回答須列來源 ID、作品／文章名稱與作者或署名對象；找不到作者時留空，不得臆造 | 已核准；來源 URL、授權全文 URL 與逐篇作者待補充前不得標為 high |
-| `storage_tech_dictionary` | dictionary | Storage Tech Dictionary | Storage Tech Dictionary 社群 | https://github.com/StorageTechDictionary/StorageTechDictionary.github.io | GPL-3.0-or-later | 見 `public/database/dictionary/LICENSE.md` | public | high | 保留原始來源連結、著作權聲明與授權資訊 | 顯示來源與 GPL-3.0-or-later 資訊；不得省略授權聲明 | 已核准 |
+| `storage_tech_dictionary` | dictionary | Storage Tech Dictionary | Storage Tech Dictionary 社群 | https://github.com/StorageTechDictionary/StorageTechDictionary.github.io | GPL-3.0-or-later | 見 `public/database/dictionary/LICENSE.md` | public | high | 保留原始來源連結、著作權聲明與授權資訊 | 顯示來源與 GPL-3.0-or-later 資訊；不得省略授權聲明 | 已核准；**範圍僅限 `public/database/dictionary/`**，不含 `Dictionary.txt` |
 | `techmc_glossary` | glossary | TechMC Glossary | 待確認 | 待確認 | 待確認 | 待確認 | internal | low | 授權確認前僅供內部檢索與審核 | 授權確認前禁止進入 `public` 匯出或一般回答引用；不得假設授權已解決 | 外部阻擋：等待來源 URL、作者與再散布條件確認 |
 | `openst_machine_submission` | machine_submission | OpenST 機器投稿 | 各投稿者 | 既有 OpenST 檔案庫 | OpenST 投稿條款（投稿者已同意） | 待補充 | internal | medium | 僅用於機器推薦 | Bot 顯示既有 OpenST 檔案庫連結，不建立額外來源目錄條目；不對外暴露內部匯入細節 | 已核准 |
 | `legacy_database_csv` | legacy_raw | 歷史知識庫（CSV） | 社群（原始貢獻者身份僅存 Raw 區） | 無（本地歷史檔案） | 內部整理，無外部授權聲明 | 無 | internal | low | 只作 Raw 與 AI 整理來源；核准整理內容改以 `openst_community` 發布 | 本來源本身不得公開匯出；僅其審核後衍生的 `openst_community` 內容可視情況公開 | 已核准（僅供 Raw／AI 整理，救援遷移另立 session） |
 | `legacy_database_markdown` | legacy_raw | 歷史學習日誌（Markdown） | 社群（原始貢獻者身份僅存 Raw 區） | 無（本地歷史檔案） | 內部整理，無外部授權聲明 | 無 | internal | low | 只作 Raw 與 AI 整理來源；核准整理內容改以 `openst_community` 發布 | 本來源本身不得公開匯出；僅其審核後衍生的 `openst_community` 內容可視情況公開 | 已核准（僅供 Raw／AI 整理） |
 | `openst_community` | community_curated | OpenST 社群整理 | 匿名／社群整理（預設） | 無 | 無外部授權聲明（原創整理內容） | 無 | internal | medium | 預設顯示「社群整理」；僅原始貢獻者明確同意才顯示貢獻者姓名 | 一般回答預設署名「社群整理」；公開網站與條款不屬於本專案範圍 | 已核准 |
+
+## 尚未指派 source_key 的來源資產
+
+下列檔案在計畫的初始來源清單中沒有對應的 `source_key`，但其初始狀態與所屬目錄的
+來源明顯不同，必須獨立管理，不得由所在目錄的來源預設值涵蓋。
+
+| 檔案 | 暫用稽核鍵 | visibility | trust_level | 初始狀態 | 依據與理由 |
+| --- | --- | --- | --- | --- | --- |
+| `public/database/Dictionary.txt` | `legacy_dictionary_txt` | `internal` | `low` | `pending` 翻譯候選 | 計畫「既有資料的初始狀態」表列為 `pending` 翻譯候選，理由是「可能與正式詞典翻譯衝突」；其定位為「人工中英對照…匯入待比對，**避免覆蓋正式詞典**」。計畫的 Raw 目錄配置亦將它放在 `raw/legacy/`（與 `database.csv`、`database.md` 同列）而非 `raw/dictionary/` |
+
+**約束**：`Dictionary.txt` 不得繼承 `storage_tech_dictionary` 的 `public`、`high` 與
+GPL-3.0-or-later 署名姿態。其內容只能作為待審翻譯候選進入 `extraction_candidates`
+（T2.6），不得寫入正式術語翻譯，也不得覆蓋 T2.5 由 `dictionary/` 匯入的既有翻譯。
+
+正式 `source_key` 應於 T1.2b 將檔案移入 `public/database/raw/legacy/` 時一併指派，
+屆時本節併入上方主表。
 
 ## 驗收規則
 

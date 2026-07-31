@@ -5,7 +5,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { buildReport, runAudit } from './audit-knowledge-data'
 
 let rootDir: string
@@ -100,7 +100,9 @@ describe('buildReport', () => {
     assert.equal(report.sources.storage_tech_dictionary.recordCount, 2)
     assert.equal(report.sources.storage_tech_dictionary.emptyDefinitionCount, 1)
     assert.equal(report.sources.storage_tech_dictionary.missingZhTranslationCount, 1)
-    assert.equal(report.sources.storage_tech_dictionary.dictionaryTxt.malformedLineCount, 1)
+    // Dictionary.txt 是獨立的待審翻譯候選來源，不隸屬已核准的正式詞典
+    assert.equal(report.sources.legacy_dictionary_txt.malformedLineCount, 1)
+    assert.equal(report.sources.legacy_dictionary_txt.file, 'public/database/Dictionary.txt')
 
     assert.equal(report.sources.techmc_glossary.encoding, 'utf-8-bom')
     assert.equal(report.sources.techmc_glossary.rowCount, 2)
@@ -181,5 +183,45 @@ describe('runAudit', () => {
     const exitCode = runAudit(rootDir, [], io)
     assert.equal(exitCode, 1)
     assert.ok(log.some((line) => line.includes('machineCount')))
+  })
+
+  // 彙總統計對「改寫正文但不動任何計數」的變更完全無感，
+  // 逐檔雜湊是唯一能攔下這類靜默變更的機制
+  it('僅改寫 GTMC 正文而不影響任何統計時，仍以逐檔雜湊偵測到變更', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+
+    const target = join(rootDir, 'public', 'database', 'gtmc-database', 'normal.md')
+    const before = readFileSync(target, 'utf-8')
+    // 同樣一個標題、同樣沒有連結、長度同樣超過 stub 門檻，只換掉正文字元
+    const after = `# 正常文件\n${'改寫'.repeat(30)}\n![圖片](img/missing.png)`
+    writeFileSync(target, after)
+
+    const baselineStats = JSON.parse(
+      readFileSync(join(rootDir, 'docs', 'data-audit.json'), 'utf-8')
+    ).sources.gtmc
+    const currentStats = buildReport(rootDir).sources.gtmc
+    // 先確認這確實是統計無法察覺的變更
+    assert.notEqual(before, after)
+    assert.deepEqual(currentStats, baselineStats)
+
+    const { log, io } = makeIo()
+    const exitCode = runAudit(rootDir, [], io)
+    assert.equal(exitCode, 1)
+    assert.ok(
+      log.some((line) => line.includes('fileHashes') && line.includes('normal.md')),
+      '差異報告應指名變更的檔案'
+    )
+  })
+
+  it('逐檔雜湊可偵測新增與刪除來源檔案', () => {
+    runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
+
+    const added = join(rootDir, 'public', 'database', 'gtmc-database', 'img', 'new.png')
+    mkdirSync(dirname(added), { recursive: true })
+    writeFileSync(added, Buffer.from([1, 2, 3]))
+
+    const { log, io } = makeIo()
+    assert.equal(runAudit(rootDir, [], io), 1)
+    assert.ok(log.some((line) => line.includes('new.png')))
   })
 })

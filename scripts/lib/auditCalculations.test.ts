@@ -15,6 +15,8 @@ import {
   hasUtf8Bom,
   detectEncoding,
   extractRelativeLinkTargets,
+  linkTargetCandidates,
+  normalizeLineEndings,
   classifyGtmcFile,
   diffValues
 } from './auditCalculations'
@@ -253,6 +255,45 @@ describe('extractRelativeLinkTargets', () => {
 
   it('沒有連結時回傳空陣列', () => {
     assert.deepEqual(extractRelativeLinkTargets('純文字內容'), [])
+  })
+
+  it('移除 docsify 的 ?id= 錨點參數，只保留檔案路徑', () => {
+    const targets = extractRelativeLinkTargets('[章節](../BlockUpdate/01-更新概念?id=_152-比較器)')
+    assert.deepEqual(targets, ['../BlockUpdate/01-更新概念'])
+  })
+
+  it('忽略純 query 錨點', () => {
+    assert.deepEqual(extractRelativeLinkTargets('[同頁錨點](?id=abc)'), [])
+  })
+})
+
+describe('linkTargetCandidates', () => {
+  it('有副檔名時只有原路徑一個候選', () => {
+    assert.deepEqual(linkTargetCandidates('./a.md'), ['./a.md'])
+  })
+
+  it('無副檔名時額外嘗試補上 .md（docsify 省略副檔名慣例）', () => {
+    assert.deepEqual(linkTargetCandidates('../BlockUpdate/01-更新概念'), [
+      '../BlockUpdate/01-更新概念',
+      '../BlockUpdate/01-更新概念.md'
+    ])
+  })
+
+  it('路徑含點號目錄但檔名無副檔名時仍嘗試 .md', () => {
+    assert.deepEqual(linkTargetCandidates('../a.b/c'), ['../a.b/c', '../a.b/c.md'])
+  })
+})
+
+describe('normalizeLineEndings', () => {
+  it('CRLF 與單獨 CR 都正規化為 LF', () => {
+    assert.equal(normalizeLineEndings('a\r\nb\rc\nd'), 'a\nb\nc\nd')
+  })
+
+  it('正規化後 CRLF 與 LF 內容的雜湊一致（跨平台可重現）', () => {
+    assert.equal(
+      sha256(normalizeLineEndings('a\r\nb\r\n')),
+      sha256(normalizeLineEndings('a\nb\n'))
+    )
   })
 })
 

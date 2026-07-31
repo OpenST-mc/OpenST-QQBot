@@ -3,7 +3,7 @@
 // 預設模式：計算結果與已提交的 docs/data-audit.json 比對，有差異時印出報告並非零結束
 // --write 模式：覆寫 docs/data-audit.json 作為新基準（供人工審核後接受）
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from 'fs'
-import { join, relative, dirname, extname } from 'path'
+import { join, relative, dirname, extname, sep } from 'path'
 import { parse } from 'csv-parse/sync'
 import {
   RawMachineEntry,
@@ -24,13 +24,19 @@ import {
   computeGlossaryStats,
   detectEncoding,
   SourceEncoding,
+  normalizeLineEndings,
+  sha256,
+  sha256Bytes,
   extractRelativeLinkTargets,
+  linkTargetCandidates,
   classifyGtmcFile,
   diffValues
 } from './lib/auditCalculations'
 
+// 所有文字讀取都經過換行正規化，確保 Windows（CRLF 工作區）與 Linux（LF）
+// checkout 對同一份提交算出相同統計與雜湊
 function readText(rootDir: string, relPath: string): string {
-  return readFileSync(join(rootDir, relPath), 'utf-8')
+  return normalizeLineEndings(readFileSync(join(rootDir, relPath), 'utf-8'))
 }
 
 function readEncoding(rootDir: string, relPath: string): SourceEncoding {
@@ -41,6 +47,65 @@ function readEncoding(rootDir: string, relPath: string): SourceEncoding {
 function summarizeEncodings(encodings: SourceEncoding[]): SourceEncoding | 'mixed' {
   const unique = new Set(encodings)
   return unique.size === 1 ? encodings[0] : 'mixed'
+}
+
+// 彙總統計無法偵測所有內容變更：改寫一段正文而不動標題數、連結數與筆數時，
+// 統計完全相同。T0.3 要求「來源新增或變更時必須輸出差異報告，不可靜默通過」，
+// 因此另外記錄每個來源檔案的 SHA-256，讓任何內容變更都能被逐檔指名。
+const HASHED_SOURCE_FILES = [
+  'public/database/database.json',
+  'public/database/database.csv',
+  'public/database/database.md',
+  'public/database/Dictionary.txt',
+  'public/database/TechMC Glossary.csv'
+]
+
+const HASHED_SOURCE_DIRS = [
+  'public/database/dictionary',
+  'public/database/gtmc-database'
+]
+
+// 純文字來源以正規化換行後的內容雜湊；圖片等二進位資產以原始位元組雜湊
+const TEXT_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.csv', '.txt', '.json'])
+
+function hashSourceFile(absolutePath: string): string {
+  const buffer = readFileSync(absolutePath)
+  if (TEXT_FILE_EXTENSIONS.has(extname(absolutePath).toLowerCase())) {
+    return sha256(normalizeLineEndings(buffer.toString('utf-8')))
+  }
+  return sha256Bytes(buffer)
+}
+
+function walkAllFiles(dir: string): string[] {
+  const result: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      continue
+    }
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      result.push(...walkAllFiles(full))
+    } else if (entry.isFile()) {
+      result.push(full)
+    }
+  }
+  return result
+}
+
+// 以 POSIX 相對路徑為鍵並排序，確保跨平台與跨執行的輸出順序一致
+function collectSourceFileHashes(rootDir: string): Record<string, string> {
+  const absolutePaths = [
+    ...HASHED_SOURCE_FILES.map((relPath) => join(rootDir, relPath)),
+    ...HASHED_SOURCE_DIRS.flatMap((relDir) => walkAllFiles(join(rootDir, relDir)))
+  ]
+
+  const hashes: Record<string, string> = {}
+  for (const key of absolutePaths
+    .map((absolutePath) => relative(rootDir, absolutePath).split(sep).join('/'))
+    .sort()) {
+    hashes[key] = hashSourceFile(join(rootDir, key))
+  }
+  return hashes
 }
 
 function parseCsv<T>(content: string): T[] {
@@ -105,7 +170,6 @@ interface DictionaryAudit extends DictionaryEntryStats {
   entryFileCount: number
   encoding: SourceEncoding | 'mixed'
   zhTranslationCount: number
-  dictionaryTxt: DictionaryTxtStats & { file: string; encoding: SourceEncoding }
 }
 
 function auditDictionary(rootDir: string): DictionaryAudit {
@@ -124,11 +188,6 @@ function auditDictionary(rootDir: string): DictionaryAudit {
   ) as { entries: Array<{ id: string }> }
   const zhIds = new Set(zhTranslations.entries.map((e) => e.id))
 
-  const dictionaryTxtFile = 'public/database/Dictionary.txt'
-  const dictionaryTxtStats = computeDictionaryTxtStats(
-    readText(rootDir, dictionaryTxtFile)
-  )
-
   const encoding = summarizeEncodings([
     ...entryFiles.map((f) => readEncoding(rootDir, `${entriesDir}/${f}`)),
     readEncoding(rootDir, zhTranslationsFile)
@@ -139,12 +198,25 @@ function auditDictionary(rootDir: string): DictionaryAudit {
     entryFileCount: entryFiles.length,
     encoding,
     ...computeDictionaryEntryStats(entries, zhIds),
-    zhTranslationCount: zhTranslations.entries.length,
-    dictionaryTxt: {
-      file: dictionaryTxtFile,
-      encoding: readEncoding(rootDir, dictionaryTxtFile),
-      ...dictionaryTxtStats
-    }
+    zhTranslationCount: zhTranslations.entries.length
+  }
+}
+
+// Dictionary.txt 是人工中英對照，屬待審翻譯候選，不是已核准的正式詞典內容。
+// 計畫的 Raw 目錄配置把它放在 `raw/legacy/`（與 database.csv、database.md 同列），
+// 而非 `raw/dictionary/`，因此這裡獨立成一個來源，避免它繼承
+// storage_tech_dictionary 的 public／approved／GPL 署名姿態而被誤當正式翻譯。
+interface DictionaryTxtAudit extends DictionaryTxtStats {
+  file: string
+  encoding: SourceEncoding
+}
+
+function auditDictionaryTxt(rootDir: string): DictionaryTxtAudit {
+  const file = 'public/database/Dictionary.txt'
+  return {
+    file,
+    encoding: readEncoding(rootDir, file),
+    ...computeDictionaryTxtStats(readText(rootDir, file))
   }
 }
 
@@ -213,7 +285,9 @@ function auditGtmc(rootDir: string, legacyCsvHashes: Set<string>): GtmcAudit {
 
   for (const filePath of files) {
     const rawBuffer = readFileSync(filePath)
-    const content = rawBuffer.toString('utf-8')
+    // 與 readText() 一致做換行正規化，否則與 database.csv 的逐字重複比對
+    // 會因 CRLF/LF 差異而全部落空
+    const content = normalizeLineEndings(rawBuffer.toString('utf-8'))
     const fileName = filePath.split(/[\\/]/).pop() || ''
     const classification = classifyGtmcFile(fileName, content)
 
@@ -226,10 +300,12 @@ function auditGtmc(rootDir: string, legacyCsvHashes: Set<string>): GtmcAudit {
 
     const fileDir = dirname(filePath)
     for (const target of extractRelativeLinkTargets(content)) {
-      const targetPath = target.startsWith('/')
-        ? join(rootDir, target.slice(1))
-        : join(fileDir, target)
-      if (!existsSync(targetPath)) {
+      const resolved = linkTargetCandidates(target).map((candidate) =>
+        candidate.startsWith('/')
+          ? join(rootDir, candidate.slice(1))
+          : join(fileDir, candidate)
+      )
+      if (!resolved.some((candidatePath) => existsSync(candidatePath))) {
         brokenLinkCount++
       }
     }
@@ -252,9 +328,11 @@ export interface AuditReport {
     legacy_database_csv: LegacyCsvAudit
     legacy_database_markdown: LegacyMarkdownAudit
     storage_tech_dictionary: DictionaryAudit
+    legacy_dictionary_txt: DictionaryTxtAudit
     techmc_glossary: GlossaryAudit
     gtmc: GtmcAudit
   }
+  fileHashes: Record<string, string>
 }
 
 export function buildReport(rootDir: string): AuditReport {
@@ -267,9 +345,11 @@ export function buildReport(rootDir: string): AuditReport {
       legacy_database_csv: auditLegacyCsv(rootDir, legacyCsvRecords),
       legacy_database_markdown: auditLegacyMarkdown(rootDir),
       storage_tech_dictionary: auditDictionary(rootDir),
+      legacy_dictionary_txt: auditDictionaryTxt(rootDir),
       techmc_glossary: auditGlossary(rootDir),
       gtmc: auditGtmc(rootDir, legacyCsvHashes)
-    }
+    },
+    fileHashes: collectSourceFileHashes(rootDir)
   }
 }
 
@@ -297,7 +377,10 @@ export function runAudit(rootDir: string, argv: string[], io: AuditIo): number {
   }
 
   const baseline = JSON.parse(readFileSync(dataAuditPath, 'utf-8')) as AuditReport
-  const diffs = diffValues('sources', baseline.sources, report.sources)
+  const diffs = [
+    ...diffValues('sources', baseline.sources, report.sources),
+    ...diffValues('fileHashes', baseline.fileHashes, report.fileHashes)
+  ]
 
   if (diffs.length === 0) {
     io.log('資料盤點無差異')

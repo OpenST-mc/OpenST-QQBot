@@ -7,6 +7,17 @@ export function sha256(content: string): string {
   return createHash('sha256').update(content, 'utf-8').digest('hex')
 }
 
+export function sha256Bytes(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex')
+}
+
+// 本倉庫 core.autocrlf=true：工作區為 CRLF，Git 內為 LF。
+// 所有文字統計與雜湊都必須先正規化換行，否則同一份提交在 Windows 與 Linux
+// checkout 會算出不同結果，使提交的基準快照無法跨平台重現。
+export function normalizeLineEndings(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
 // 依 wc -l 慣例切行：檔案以換行結尾時不把結尾後的空字串算成一行
 export function splitLines(text: string): string[] {
   const lines = text.split('\n')
@@ -314,7 +325,9 @@ export function detectEncoding(buffer: Buffer): SourceEncoding {
   return hasUtf8Bom(buffer) ? 'utf-8-bom' : 'utf-8'
 }
 
-// 抓取 Markdown 連結與圖片的本機目標，移除 fragment 供檔案存在性檢查
+// 抓取 Markdown 連結與圖片的本機目標，移除 fragment 與 query 供檔案存在性檢查。
+// GTMC 文件以 docsify 發佈，站內連結會寫成 `路徑?id=錨點`；`?` 之後屬於錨點參數
+// 而非檔名，與 `#` 一樣必須先移除，否則會把實際存在的檔案誤判為失效連結。
 export function extractRelativeLinkTargets(content: string): string[] {
   const targets: string[] = []
   const linkRegex = /!?\[[^\]]*]\(([^)]+)\)/g
@@ -325,17 +338,25 @@ export function extractRelativeLinkTargets(content: string): string[] {
       target === '' ||
       /^https?:\/\//.test(target) ||
       target.startsWith('//') ||
-      target.startsWith('#')
+      target.startsWith('#') ||
+      target.startsWith('?')
     ) {
       continue
     }
 
-    const pathWithoutFragment = target.split('#', 1)[0]
-    if (pathWithoutFragment !== '') {
-      targets.push(pathWithoutFragment)
+    const pathOnly = target.split('#', 1)[0].split('?', 1)[0]
+    if (pathOnly !== '') {
+      targets.push(pathOnly)
     }
   }
   return targets
+}
+
+// 一個連結目標可接受的候選檔案路徑。docsify 站內連結常省略 `.md` 副檔名，
+// 因此無副檔名的目標必須同時嘗試補上 `.md`；任一候選存在即視為連結有效。
+export function linkTargetCandidates(target: string): string[] {
+  const hasExtension = /\.[^./\\]+$/.test(target)
+  return hasExtension ? [target] : [target, `${target}.md`]
 }
 
 // 單一 gtmc Markdown 檔案的文件類型分類：not_found（檔名含 404）、
