@@ -367,9 +367,9 @@ AI 必須以工作區內容作答，不可把待審內容敘述成已確認事�
 | 來源 | 實測量 | 備註 |
 | --- | --- | --- |
 | `database.json` | 81 筆機器、228 個 tag、`sub_id` 81/81 唯一 | 欄位 `id,name,author,tags,description,preview,filename,sub_id` |
-| `dictionary/entries/` | 112 個詞條檔 | 含 `id,terms,definition,threadURL,status,references,referencedBy,updatedAt`；`summary` 位於 `dictionary/config.json` |
+| `dictionary/entries/` | 112 個詞條檔 | 含 `id,terms,definition,threadURL,statusURL,status,statusMessageID,updatedAt,references,referencedBy`；`summary` 位於 `dictionary/config.json` |
 | `gtmc-database/` | 23 個 Markdown 檔 | 19 份內容與 `database.csv` 逐字重複；含 404、導航與未完成文件 |
-| `TechMC Glossary.csv` | 415 列、25 欄多語 | 欄名為 `Category,Short Form,Regex,Full Form (English),Related,Description` + 11 語系；檔首含 BOM |
+| `TechMC Glossary.csv` | 415 列、26 欄多語 | 欄名為 `Category,Short Form,Regex,Full Form (English),Related,Description` + 10 語系各一組 `<語系>` 與 `Description (<語系>)`；語系為 Arabic、Chinese、French、German、Italian、Japanese、Korean、Portugese、Russian、Spanish；檔首含 BOM |
 | `database.csv` | 151 筆 RFC 4180 邏輯記錄、4,288 個實體行 | 19 筆多行 Markdown 佔大量實體行；不可按換行解析 |
 | `database.md` | 215 行 | |
 | `Dictionary.txt` | 117 行 | |
