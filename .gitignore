@@ -11,5 +11,6 @@ yarn-error.log*
 .vscode/*
 .env
 /dist/
+/dist-scripts/
 /.idea/
 public/database/submissions.json
