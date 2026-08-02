@@ -8,7 +8,7 @@
     "start": "node dist/index.js",
     "audit": "tsc -p tsconfig.scripts.json && node dist-scripts/audit-knowledge-data.js",
     "test:audit": "tsc -p tsconfig.scripts.json && node --test dist-scripts/audit-knowledge-data.test.js dist-scripts/lib/auditCalculations.test.js",
-    "test": "npm run build && tsc -p tsconfig.tests.json && node --test \"dist-tests/tests/unit/**/*.test.js\"",
+    "test": "tsc -p tsconfig.tests.json && node --test \"dist-tests/tests/unit/**/*.test.js\"",
     "postinstall": "node -e \"const fs=require('fs');const p='node_modules/@xenova/transformers/node_modules/sharp';fs.rmSync(p,{recursive:true,force:true})\""
   },
   "dependencies": {

@@ -3,7 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, test } from 'node:test'
-import { KNOWLEDGE_DATABASE_PATH, PROJECT_ROOT } from '../../../src/config'
+import { KNOWLEDGE_DATABASE_PATH } from '../../../src/config'
 import { createDatabase } from '../../../src/db/connection'
 import { MigrationError, runMigrations } from '../../../src/db/migrate'
 
@@ -75,13 +75,63 @@ test('migration 依文件名顺序执行且可重复运行', () => {
   database.close()
 })
 
-test('默认知识库与编译产物的 migration 路径不依赖当前工作目录', () => {
+test('默认知识库路径为绝对路径且不随当前工作目录改变', () => {
   assert.equal(path.isAbsolute(KNOWLEDGE_DATABASE_PATH), true)
-  assert.equal(
-    KNOWLEDGE_DATABASE_PATH,
-    path.join(PROJECT_ROOT, 'public', 'database', 'knowledge.db')
+  assert.deepEqual(
+    KNOWLEDGE_DATABASE_PATH.split(path.sep).slice(-3),
+    ['public', 'database', 'knowledge.db']
   )
-  assert.equal(fs.existsSync(path.join(process.cwd(), 'dist', 'db', 'migrations')), true)
+
+  // 切换 cwd 后重新加载配置，路径必须由 __dirname 推导而非当前工作目录
+  const configModulePath = require.resolve('../../../src/config')
+  const originalCwd = process.cwd()
+  process.chdir(os.tmpdir())
+  try {
+    delete require.cache[configModulePath]
+    const reloaded = require('../../../src/config') as {
+      KNOWLEDGE_DATABASE_PATH: string
+    }
+    assert.equal(reloaded.KNOWLEDGE_DATABASE_PATH, KNOWLEDGE_DATABASE_PATH)
+  } finally {
+    process.chdir(originalCwd)
+    delete require.cache[configModulePath]
+  }
+})
+
+test('拒绝非 4 位版本号的 migration 文件名', () => {
+  const fixture = createFixture()
+  fs.writeFileSync(path.join(fixture.migrationsPath, '1_first.sql'), 'SELECT 1;')
+  const database = createDatabase(fixture.databasePath)
+
+  assert.throws(
+    () => runMigrations(database, fixture.migrationsPath),
+    /Migration 文件名不合法: 1_first\.sql/
+  )
+  database.close()
+})
+
+test('同一版本号出现多个 migration 文件时报错', () => {
+  const fixture = createFixture()
+  fs.writeFileSync(path.join(fixture.migrationsPath, '0001_a.sql'), 'SELECT 1;')
+  fs.writeFileSync(path.join(fixture.migrationsPath, '0001_b.sql'), 'SELECT 1;')
+  const database = createDatabase(fixture.databasePath)
+
+  assert.throws(
+    () => runMigrations(database, fixture.migrationsPath),
+    /Migration 版本重复: 0001/
+  )
+  database.close()
+})
+
+test('migration 目录不存在时提示先执行 npm run build', () => {
+  const fixture = createFixture()
+  const database = createDatabase(fixture.databasePath)
+
+  assert.throws(
+    () => runMigrations(database, path.join(fixture.migrationsPath, 'absent')),
+    /Migration 目录不存在[\s\S]*npm run build/
+  )
+  database.close()
 })
 
 test('失败 migration 会回滚且不记录版本', () => {

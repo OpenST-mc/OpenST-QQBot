@@ -4,7 +4,8 @@ import path from 'path'
 import Database from 'better-sqlite3'
 import { getDatabase } from './connection'
 
-const MIGRATION_FILE_PATTERN = /^(\d+)_[A-Za-z0-9_-]+\.sql$/
+// 版本号固定 4 位，确保文件名字典序与版本号数值顺序一致
+const MIGRATION_FILE_PATTERN = /^(\d{4})_[A-Za-z0-9_-]+\.sql$/
 const DEFAULT_MIGRATIONS_DIRECTORY = path.join(__dirname, 'migrations')
 
 export class MigrationError extends Error {
@@ -15,7 +16,7 @@ export class MigrationError extends Error {
     const detail = originalError instanceof Error
       ? originalError.message
       : String(originalError)
-    super(`Migration ${version} 失敗: ${detail}`)
+    super(`Migration ${version} 失败: ${detail}`)
     this.name = 'MigrationError'
   }
 }
@@ -26,6 +27,13 @@ interface Migration {
 }
 
 function listMigrations(migrationsDirectory: string): Migration[] {
+  // 只跑 tsc 而未执行 npm run build 时目录不会存在，需给出可操作的提示
+  if (!fs.existsSync(migrationsDirectory)) {
+    throw new Error(
+      `Migration 目录不存在: ${migrationsDirectory}，请先执行 npm run build`
+    )
+  }
+
   const filenames = fs.readdirSync(migrationsDirectory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.sql'))
     .map((entry) => entry.name)
@@ -35,12 +43,12 @@ function listMigrations(migrationsDirectory: string): Migration[] {
   return filenames.map((filename) => {
     const match = MIGRATION_FILE_PATTERN.exec(filename)
     if (match === null) {
-      throw new Error(`Migration 檔名不合法: ${filename}`)
+      throw new Error(`Migration 文件名不合法: ${filename}`)
     }
 
     const version = match[1]
     if (versions.has(version)) {
-      throw new Error(`Migration 版本重複: ${version}`)
+      throw new Error(`Migration 版本重复: ${version}`)
     }
     versions.add(version)
 
