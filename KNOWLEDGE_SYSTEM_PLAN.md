@@ -72,6 +72,43 @@
 
 隔離區可建立搜尋索引供審核者研究，但不得進入使用者正式回答的 Answer Index。
 
+## 進程架構
+
+系統由兩個獨立 Node process 組成，共用同一個 `public/database/knowledge.db`（`journal_mode = WAL`，T1.1 已設定，允許一個寫入者與多個讀取者同時存取）。拆分的理由：QQ 訊息收發必須低延遲；Raw 掃描、AI 背景分流與向量重算是重計算或高延遲工作，不得阻塞 QQ 事件迴圈。
+
+| Process | 進入點 | 職責 | 啟動方式 |
+| --- | --- | --- | --- |
+| Bot | `src/index.ts` → `dist/index.js` | QQ WebSocket 收發、`/ask`／`/learn`／`/judge`／`/review` 等使用者互動命令、機器資料同步（T1.4a）、所有需要即時回覆使用者的 AI 呼叫 | `npm start` |
+| Worker | `src/worker.ts` → `dist/worker.js` | Raw 目錄掃描與監看（T1.2a）、`ai_jobs` 佇列消費、AI 背景批次任務（文件品質、術語正規化、跨文件 Claim 比對）、向量索引重算（T4.2、T4.6） | 由 Bot 在 migration 成功後以 `child_process.fork()` 自動帶起，不提供獨立 `npm run worker` 作為正式啟動入口（除錯時可手動 `node dist/worker.js` 執行，但不在生產啟動流程中） |
+
+### 啟動與關閉順序
+
+1. Bot 進程啟動，載入 `.env`、依序執行 `runMigrations()`。**只有 Bot 執行 migration**；Worker 永遠不呼叫 `runMigrations()`，因為 Worker 一定在 migration 成功後才被 fork 出來，schema 保證已就緒，不需要也不應該重複判斷。
+2. migration 失敗時 Bot 直接啟動失敗（沿用既有規則），不 fork Worker。
+3. migration 成功後，Bot 立即 `child_process.fork(path.join(__dirname, 'worker.js'))`，同時開始 QQ WebSocket 連線流程；兩者不互相等待。
+4. Worker 進程啟動後，先將 `ai_jobs` 中殘留的 `running` job 重設為 `queued`（進程異常結束的復原邏輯，語意不變，只是現在明確是 Worker 自己的啟動步驟），再開始掃描 `public/database/raw/` 與消費 `ai_jobs` 佇列。
+5. Bot 收到 `SIGINT`／`SIGTERM` 時，先對 Worker 子進程送出終止信號並等待其結束（含關閉 Worker 自己持有的資料庫連線），再執行 Bot 既有的 `shutdownSubmissions`／`shutdownContext`／`closeOcr`／`closeDatabase` 收尾流程。Worker 收到終止信號時，讓當前正在處理的單一 `ai_jobs` 工作以現有的 transaction 邊界完成或安全中止（不強制中斷一個已開始的 transaction），再關閉資料庫連線並結束進程。
+
+### Worker 崩潰重啟策略
+
+Bot 以 in-memory 計數器追蹤 Worker 重啟次數，不寫入資料庫（Bot 本身重啟即視為全新狀態）：
+
+1. Worker 非正常結束時，Bot 依序等待 5 秒、30 秒、120 秒後重新 fork（第 1／2／3 次重啟分別對應）。
+2. 若重啟後的 Worker 連續存活滿 5 分鐘，失敗計數歸零。
+3. 若第 4 次崩潰發生在前一次重啟後不滿 5 分鐘內，Bot 停止自動重啟，寫入明確錯誤日誌（含崩潰次數、最後一次錯誤訊息），但 Bot 自身繼續正常運作、QQ 訊息收發不受影響；此時只有背景匯入／AI／向量重算停擺，需人工介入重啟整個 Bot 進程。
+
+### 資料庫並發規則
+
+WAL 模式允許並發讀取，但同時只有一個寫入者；`busy_timeout = 5000`（T1.1 已設定）讓等待中的寫入者最多等 5 秒才會失敗。Worker 的所有寫入必須以**單一檔案／單一 job／單一 Raw 資產**為粒度分別開 transaction，不得把整批掃描或整批 AI 佇列消費包進同一個長 transaction——否則 Bot 端的 `/learn`、`/judge`、審核寫入可能在等待期間逾時失敗。
+
+### AI 呼叫的執行位置原則
+
+使用者發出命令後預期在同一次互動內看到結果的 AI 呼叫，一律由 **Bot 同步呼叫**（`await`，網路 I/O 不阻塞其他 QQ 事件，只延後該次互動的回覆）；不涉及使用者即時等待、可延後處理的 AI 任務一律由 **Worker 背景消費 `ai_jobs` 佇列**處理。逐項對照見下方〈AI 介入分工〉表新增的「執行於」欄。
+
+### 語意向量模型載入
+
+Bot 與 Worker 各自獨立載入一份 Sentence-BERT ONNX 模型（`warmupEmbedding()`）：Bot 只用於將使用者查詢即時轉換為向量（T4.3 Query Planner／`/ask`），Worker 用於文件 Chunk 與 Claim 的向量重算與索引寫入（T4.2、T4.6）。兩者不共用模型行程，記憶體各自佔用一份；這是刻意的取捨，換取兩個 process 之間不需要為了算向量而新增跨進程通訊。
+
 ## SQLite 資料模型
 
 ### 來源與文件
@@ -411,7 +448,7 @@ AI 必須以 Raw 資產為單位輸出可驗證的 triage 結果，包含 `sourc
 | Phase | 目標 | Track 數 | 關鍵產出 |
 | --- | --- | --- | --- |
 | 0 | 資料政策、盤點與清理規則 | 5 | 枚舉契約、來源政策、清理清單、評測題庫 |
-| 1 | SQLite 基礎與機器遷移 | 8 | DB 基礎設施、`machines`、Raw 目錄遷移與增量掃描 |
+| 1 | SQLite 基礎與機器遷移 | 8 | DB 基礎設施、`machines`、Raw 目錄遷移與增量掃描、Bot／Worker 雙進程架構 |
 | 2 | 文件與術語遷移 | 10 | `documents`、`terms`、切段器 |
 | 3 | 知識與 Claim 審核 | 9 | `knowledge_entries`、`claims`、審核流程 |
 | 4 | 混合檢索 | 6 | FTS5、向量版本化、RRF |
@@ -459,8 +496,10 @@ AI 必須以 Raw 資產為單位輸出可驗證的 triage 結果，包含 `sourc
 | SQLite 主鍵 | 所有內部表使用 `INTEGER PRIMARY KEY AUTOINCREMENT` | 對外不得暴露內部 ID；每個可引用 Chunk 的公開 ID 由 `source_references.id` 衍生 |
 | Raw 內容 | Raw 目錄是唯一完整原文 | `raw_assets` 只保存來源路徑、邏輯記錄號、正規化內容雜湊、編碼與處理 metadata，不複製正文至 SQLite |
 | DB 版本控制 | 提交完整 `knowledge.db` | DB 包含整理資料、AI 候選、審核紀錄與向量；Raw 原文仍以檔案管理 |
-| 啟動匯入 | migration 後掃描 Raw 目錄與機器 JSON | Raw 以 manifest 比對未匯入或正規化內容雜湊已改變檔案並自動增量匯入；`database.json` 雜湊變更時直接同步 machines，不經 AI |
-| AI API | Flash／Pro 共用現有 API，均支援 JSON | 僅 API Key 讀環境變數；模型 ID 以集中常數 `DEEPSEEK_MODEL_FLASH`、`DEEPSEEK_MODEL_PRO` 定義；不納入費率與配額處理 |
+| 啟動匯入 | Bot 完成 migration 後，機器 JSON 同步（T1.4a）在 Bot 內執行；Raw 目錄掃描（T1.2a）在 Bot fork 出的 Worker 進程內執行 | Raw 以 manifest 比對未匯入或正規化內容雜湊已改變檔案並自動增量匯入；`database.json` 雜湊變更時直接同步 machines，不經 AI；詳見〈進程架構〉 |
+| 進程拓樸 | Bot／Worker 雙進程，Worker 由 Bot 以 `child_process.fork()` 自動帶起，不提供獨立正式啟動入口 | 詳見〈進程架構〉；Worker 崩潰採有上限的自動重啟（5s/30s/120s 退避，連續 4 次失敗且皆未存活滿 5 分鐘則停止重試） |
+| Migration 執行者 | 僅 Bot 呼叫 `runMigrations()` | Worker 永不呼叫；Worker 一律在 migration 成功後才被 fork，schema 保證就緒 |
+| AI API | Flash／Pro 共用現有 API，均支援 JSON | 僅 API Key 讀環境變數；模型 ID 以集中常數 `DEEPSEEK_MODEL_FLASH`、`DEEPSEEK_MODEL_PRO` 定義；不納入費率與配額處理；哪些呼叫在 Bot、哪些在 Worker 見〈AI 介入分工〉表「執行於」欄 |
 | 本地引用 ID | Bot 維護 `SRC-00000001` 全域流水號 | 每個可引用 Chunk 一個 ID；首次建立後永不改變或重用；不包含外部網站功能 |
 | 歷史 CSV／Markdown 與社群內容 | Raw 僅內部保存 | 每個整理後可引用 Chunk 保留 `SRC-*`；一般回答只輸出核准後內容與匿名「社群整理」署名，不輸出 Raw、QQ ID 或群組 ID |
 | 回覆判定 | 正確、錯誤、部分正確、修改建議 | 部分正確須拆分知識點逐項判定；修改建議建立待審修訂候選 |
@@ -603,13 +642,13 @@ AI 回覆 Fixture 的檔名使用輸入 Raw 正規化內容的 SHA-256，不使�
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T1.2b | Raw 目錄遷移：直接移動現有原始資料至 `public/database/raw/`，並同步更新尚未遷移的舊讀取路徑 | T1.2 | Raw 目錄結構與暫時相容路徑 | `gtmc-database/`、`dictionary/`、`TechMC Glossary.csv`、`database.csv`、`database.md`、`Dictionary.txt` 全數移入 Raw；`database.json` 留在原位；`npm run build` 通過且既有命令不因路徑變更失效 |
-| T1.4a | `database.json` 機器同步器：每次啟動以 SHA-256 偵測你在本機手動更新的 JSON，單一 transaction、`ON CONFLICT(sub_id) DO UPDATE`、tag 差異同步 | T1.2, T1.3 | `src/db/import/machines.ts` | 匯入後 `machines`=81、`sub_id` 唯一=81、`machine_tags`=228；JSON 未變更時不寫 DB；變更時直接同步且不呼叫 AI；已被人工改為非 `approved` 的 `status` 不被重匯入覆寫；不納入 Raw 目錄掃描器 |
+| T1.4a | `database.json` 機器同步器：每次啟動以 SHA-256 偵測你在本機手動更新的 JSON，單一 transaction、`ON CONFLICT(sub_id) DO UPDATE`、tag 差異同步 | T1.2, T1.3 | `src/db/import/machines.ts` | 匯入後 `machines`=81、`sub_id` 唯一=81、`machine_tags`=228；JSON 未變更時不寫 DB；變更時直接同步且不呼叫 AI；已被人工改為非 `approved` 的 `status` 不被重匯入覆寫；不納入 Raw 目錄掃描器；**在 Bot process 執行**（migration 成功後、fork Worker 之前），不進 Worker |
 
 ### 批次 1-D
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
-| T1.2a | Raw 目錄增量掃描器：掃描與監看本機 `public/database/raw/`，讀取／更新 `import-manifest.json`，只派送新增或正規化內容 SHA-256 改變的檔案至匯入管線 | T1.1, T1.2, T1.2b | `src/db/import/rawScanner.ts`、`public/database/raw/import-manifest.json` | Bot 啟動時 migration 後自動執行；本機檔案變更後自動增量掃描；未變更檔案不重複派送；manifest 記錄相對路徑、正規化雜湊、最後匯入時間、import run ID 與結果；同一時間只允許一個掃描／匯入作業；不提供 QQ 手動觸發命令 |
+| T1.2a | Raw 目錄增量掃描器：掃描與監看本機 `public/database/raw/`，讀取／更新 `import-manifest.json`，只派送新增或正規化內容 SHA-256 改變的檔案至匯入管線；本 Track 一併建立 `src/worker.ts` 進入點與 `src/workerSupervisor.ts`（Bot 端 fork／重啟監控邏輯） | T1.1, T1.2, T1.2b | `src/db/import/rawScanner.ts`、`src/worker.ts`、`src/workerSupervisor.ts`、`public/database/raw/import-manifest.json` | Bot 完成 migration 後以 `child_process.fork()` 帶起 Worker，掃描器在 Worker 進程內自動執行；本機檔案變更後自動增量掃描；未變更檔案不重複派送；manifest 記錄相對路徑、正規化雜湊、最後匯入時間、import run ID 與結果；同一時間只有一個 Worker 進程在跑，天然不會有第二個掃描／匯入作業並行，Worker 內部仍需以 debounce＋in-process 旗標防止同一批檔案變動被重複觸發；不提供 QQ 手動觸發命令；Worker 崩潰採〈進程架構〉定義的有上限自動重啟 |
 | T1.4b | `services/data.ts` 改接 SQLite，對外型別與呼叫端零改動 | T1.4a | 改寫後的 `loadMachineDatabase()` | `MachineEntry[]` 介面不變；`searchMachines()` 不需修改 |
 
 ### 批次 1-E
@@ -617,7 +656,7 @@ AI 回覆 Fixture 的檔名使用輸入 Raw 正規化內容的 SHA-256，不使�
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T1.5b | 回歸驗證：重跑基準快照並逐題比對 | T1.4b, T1.5a | 比對報告 | 每題 top-5 `sub_id` 順序與 T1.5a 完全一致 |
-| T1.6 | 收尾：Raw 目錄與 manifest 的檔案政策、啟動／檔案監看匯入說明、AGENTS.md 資料檔說明 | T1.2a | 設定與文件 | `knowledge.db` 提交 Git；`knowledge.db-wal`、`knowledge.db-shm` 與 Raw manifest 加入 gitignore；不提供 QQ 或 npm 手動同步入口；文件說明本機檔案異動會自動觸發相同掃描器 |
+| T1.6 | 收尾：Raw 目錄與 manifest 的檔案政策、啟動／檔案監看匯入說明、Bot／Worker 雙進程啟動與重啟說明、AGENTS.md 資料檔與 Build & Run 說明 | T1.2a | 設定與文件 | `knowledge.db` 提交 Git；`knowledge.db-wal`、`knowledge.db-shm` 與 Raw manifest 加入 gitignore；不提供 QQ 或 npm 手動同步入口；文件說明本機檔案異動會自動觸發相同掃描器；`AGENTS.md` 的 Build & Run 章節新增 Worker 進程說明（`npm start` 會自動帶起 Worker、`node dist/worker.js` 僅供除錯手動啟動、Worker 崩潰重啟策略與如何從 log 判斷 Worker 已停止重試） |
 
 Raw 目錄固定結構：
 
@@ -660,7 +699,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 );
 ```
 
-已存在的 version 不得重跑。migration 失敗時 transaction rollback、Bot 啟動失敗並輸出 version 與原始錯誤；不得在部分 schema 下繼續接收 QQ 事件。
+已存在的 version 不得重跑。migration 失敗時 transaction rollback、Bot 啟動失敗並輸出 version 與原始錯誤；不得在部分 schema 下繼續接收 QQ 事件。`runMigrations()` 只由 Bot 呼叫；Worker 進程不執行、也不需要判斷 migration 狀態，因為 Worker 只會在 Bot migration 成功後才被 fork 出來（見〈進程架構〉）。
 
 所有內部表遵循：`id INTEGER PRIMARY KEY AUTOINCREMENT`、時間使用 UTC ISO-8601 text、布林使用 `INTEGER CHECK (value IN (0, 1))`、JSON 儲存為 `TEXT` 並由 TypeScript schema 驗證。除公開 `SRC-*` 外，任何回覆、URL 或 AI prompt 不得暴露內部 `id`。
 
@@ -838,9 +877,9 @@ CREATE INDEX machine_tags_tag ON machine_tags(tag);
 }
 ```
 
-掃描器只接受 Raw 根目錄內的 regular file，不跟隨 symbolic link，不掃描 manifest 本身。檔案變動採 500ms debounce；掃描與匯入以單一 process mutex 串行化。匯入失敗時保留舊 manifest 項目、記錄 `failed` 結果，下次檔案變動或重啟時重試。
+掃描器與 `ai_jobs` worker 皆執行於 Worker 進程（見〈進程架構〉），Bot 進程完全不執行掃描或 AI 佇列消費。掃描器只接受 Raw 根目錄內的 regular file，不跟隨 symbolic link，不掃描 manifest 本身。檔案變動採 500ms debounce；由於同一時間只會有一個 Worker 進程在跑，不需要跨 process 的 mutex，但 Worker 內部仍須以 in-process 旗標／debounce 佇列防止同一批檔案變動被重複觸發掃描。匯入失敗時保留舊 manifest 項目、記錄 `failed` 結果，下次檔案變動或 Worker 重啟時重試。
 
-掃描器完成 Raw 註冊與確定性品質檢查後，只能建立 `ai_jobs.status = 'queued'`，不得在掃描流程直接呼叫模型。QQ WebSocket 可在背景 worker 處理 jobs 時正常啟動與回覆；未完成項目不會出現在檢索結果。worker 每次以單一 job 執行，取得 job 時以 transaction 將 `queued` 改為 `running` 並遞增 `attempts`；進程啟動時將殘留 `running` job 重設為 `queued`。成功時建立 `ai_runs` 和候選後標為 `succeeded`；失敗時保存錯誤並標為 `failed`，等待下一次 Raw 變動或重啟重試。
+掃描器完成 Raw 註冊與確定性品質檢查後，只能建立 `ai_jobs.status = 'queued'`，不得在掃描流程直接呼叫模型。QQ WebSocket 執行於 Bot 進程，與 Worker 完全分離，不受 Worker 處理 `ai_jobs` 的耗時影響；未完成項目不會出現在檢索結果。Worker 每次以單一 job 執行，取得 job 時以 transaction 將 `queued` 改為 `running` 並遞增 `attempts`；**Worker 進程**啟動時（不是 Bot）將殘留 `running` job 重設為 `queued`。成功時建立 `ai_runs` 和候選後標為 `succeeded`；失敗時保存錯誤並標為 `failed`，等待下一次 Raw 變動或 Worker 重啟（含〈進程架構〉定義的自動重啟）重試。Worker 對 `ai_jobs` 的每一次「取 job → 處理 → 寫回結果」須各自獨立開 transaction，不得把多筆 job 包進同一個 transaction。
 
 ### 關卡 G1
 
@@ -864,6 +903,8 @@ CREATE INDEX machine_tags_tag ON machine_tags(tag);
 | T2.10 | `version_scopes` / `content_version_scopes` 建表與標註工具 | G1 | schema + 工具 | 版本以 major/minor/patch 三段整數比較；未知版本標為 `unknown`，不得假裝適用全版本 |
 
 ### 批次 2-B（各來源匯入器，互相獨立可同時開工）
+
+本批次全部 Track（T2.4-T2.8）與 T1.2a 的 Raw 掃描器同屬匯入管線，皆執行於 Worker 進程；使用者不會直接觸發、也不等待這些匯入器的執行結果（見〈進程架構〉）。
 
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
@@ -1165,9 +1206,9 @@ dictionary、Glossary、GTMC 與社群資料皆只能新增 `term_definitions` �
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T3.5 | 審核入口優先：pending 清單、詳情、通過／拒絕按鈕與 `/knowledge mode approved|pending`，複用 `submissions` 既有鍵盤模式 | T3.3 | `src/commands/review.ts`、`src/commands/knowledge.ts` | 使用者符合 `KNOWLEDGE_REVIEWER_USERS` 或所屬群符合 `KNOWLEDGE_REVIEWER_GROUPS` 時可查看來源、版本、條件、例外與證據後決策或切換模式；入口在任何寫入路徑切換前可用 |
-| T3.6 | `/learn` 改寫入 SQLite，帶來源、建立者、去重與待審狀態 | T3.1, T3.3, T3.5 | 改寫後的 `commands/learn.ts` | 不再 append CSV；相同內容建立可追溯重複關聯或提示，不覆蓋既有來源與建立者 |
-| T3.7 | 主動與被動自動學習改為只能建立 `pending`，保留原始訊息、附件摘要與 AI 提取結果（修正 D3） | T3.1, T3.5 | 改寫後的 `services/learn.ts` | 自動學習在任何情況下都不能產生 `approved`；被動學習提取器必含原問題、既有對話、本次補充與附件解析內容 |
-| T3.9 | 回答評判與錯誤回報命令：引用 Bot 回覆後以 `/judge correct`、`/judge incorrect <原因>`、`/judge partial`、`/judge amend <建議>` 判定 | T3.2, T3.3, T3.5 | 回報入口 | 使用者符合 `KNOWLEDGE_JUDGE_USERS` 或所屬群符合 `KNOWLEDGE_JUDGE_GROUPS` 時可評判；`partial` 由 AI 將回答拆為原子知識點，審核者逐項選擇正確／錯誤；`amend` 建立待審修訂候選；所有判定保存問題、回答、Evidence Workspace 快照與原因，不覆蓋舊知識 |
+| T3.6 | `/learn` 改寫入 SQLite，帶來源、建立者、去重與待審狀態 | T3.1, T3.3, T3.5 | 改寫後的 `commands/learn.ts` | 不再 append CSV；相同內容建立可追溯重複關聯或提示，不覆蓋既有來源與建立者；AI 候選產生（標題建議、候選術語、Candidate Claim 草稿）由 **Bot 進程同步呼叫** Flash（見〈AI 介入分工〉），不經 `ai_jobs` 佇列，使用者在同一次 `/learn` 互動內看到候選內容或明確的失敗訊息 |
+| T3.7 | 主動與被動自動學習改為只能建立 `pending`，保留原始訊息、附件摘要與 AI 提取結果（修正 D3） | T3.1, T3.5 | 改寫後的 `services/learn.ts` | 自動學習在任何情況下都不能產生 `approved`；被動學習提取器必含原問題、既有對話、本次補充與附件解析內容；此類學習不由使用者命令直接觸發、使用者不等待其結果，AI 抽取經 `ai_jobs` 佇列由 **Worker 進程背景處理**，與 `/learn` 的同步呼叫方式不同 |
+| T3.9 | 回答評判與錯誤回報命令：引用 Bot 回覆後以 `/judge correct`、`/judge incorrect <原因>`、`/judge partial`、`/judge amend <建議>` 判定 | T3.2, T3.3, T3.5 | 回報入口 | 使用者符合 `KNOWLEDGE_JUDGE_USERS` 或所屬群符合 `KNOWLEDGE_JUDGE_GROUPS` 時可評判；`partial` 由 **Bot 進程同步呼叫** Flash 將回答拆為原子知識點，審核者逐項選擇正確／錯誤；`amend` 建立待審修訂候選（純資料寫入，不呼叫 AI）；所有判定保存問題、回答、Evidence Workspace 快照與原因，不覆蓋舊知識 |
 
 ### 關卡 G3
 
@@ -1374,7 +1415,7 @@ judge-item:<feedbackId>:<ordinal>:incorrect
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T4.1 | 兩個 FTS5 虛擬表與同步觸發器：`document_chunks_fts`、`terms_fts` | G3 | schema + 觸發器 | 文件段落、術語、版本號與縮寫可命中；`machines` 維持既有名稱／tag SQL 比對，不混入此 Track |
-| T4.2 | 持久化 `sqlite-vec`：`document_chunk_vectors` 與 `claim_vectors` 兩個獨立 `vec0` 表，含模型與內容雜湊中繼資料 | G3 | `src/db/vectors.ts` | 新增或變更條目只計算受影響向量；重啟不重算全部；兩類向量不可互查 |
+| T4.2 | 持久化 `sqlite-vec`：`document_chunk_vectors` 與 `claim_vectors` 兩個獨立 `vec0` 表，含模型與內容雜湊中繼資料；索引重算執行於 Worker 進程 | G3 | `src/db/vectors.ts` | 新增或變更條目只計算受影響向量；**Worker** 重啟不重算全部（Bot 重啟與此無關，Bot 不持有這兩個向量表的寫入邏輯）；兩類向量不可互查；Worker 與 Bot 各自獨立載入語意模型（見〈進程架構〉） |
 | T4.3 | Query Planner：辨識目標類型、Minecraft 範圍、涉及術語、缺失條件 | G3, T2.9 | `src/services/queryPlanner.ts` | 版本不可推定時明確標示假設或詢問使用者 |
 
 ### 批次 4-B
@@ -1388,7 +1429,7 @@ judge-item:<feedbackId>:<ordinal>:incorrect
 | Track | 內容 | 依賴 | 產出 | 完成條件 |
 | --- | --- | --- | --- | --- |
 | T4.5 | Metadata 篩選與重排序（狀態／版本／可信度加權） | T4.4 | 重排序模組 | 術語精確命中、版本相容、已核准者權重提高 |
-| T4.6 | `services/embeddings.ts` 重構，移除每次 `/ask` 全量重建（修正 D2） | T4.2, T4.4 | 改寫後的 embeddings | `/ask` 只對使用者問題計算一次 embedding |
+| T4.6 | `services/embeddings.ts` 重構，移除每次 `/ask` 全量重建（修正 D2） | T4.2, T4.4 | 改寫後的 embeddings | `/ask` 只對使用者問題計算一次 embedding，在 **Bot 進程**執行；知識庫內容的向量重算與寫入在 **Worker 進程**執行，兩者互不阻塞 |
 
 ### 關卡 G4
 
@@ -1649,21 +1690,24 @@ QQ 命令以 `/experiment create` 建立相同欄位的 pending 實驗；Bot 以
 
 AI 只負責理解、抽取、比較與表達；資料庫寫入、狀態轉移、版本過濾、雜湊去重、FTS/向量檢索、引用連結與權限檢查必須是可測試的確定性程式邏輯。所有 AI 產物都先是候選資料，不能自行建立 `approved` Claim 或覆蓋既有知識。
 
-| 工作 | 是否需要 AI | 建議模型 | 規則 |
-| --- | --- | --- | --- |
-| JSON/CSV/Markdown 匯入、雜湊去重、版本欄位保存、FTS、sqlite-vec、狀態機、權限與引用渲染 | 不需要 | 不呼叫模型 | 必須可重複、可測試且無模型不確定性 |
-| Markdown 標題切段、表格與程式碼區塊保留 | 不需要 | 不呼叫模型 | 採結構解析，不由 AI 改寫原文 |
-| 已知術語的精確中英別名匹配 | 不需要 | 不呼叫模型 | 以 `term_aliases` 查詢；未知合併才交人工確認 |
-| `/learn` 文字、附件與引用內容的標題建議、候選術語、Candidate Claim 草稿 | 需要 | DeepSeek V4 Flash | 背景批次工作；必須輸出結構化 JSON、保留原文與來源、寫入 `pending` |
-| 主動／被動學習中的知識摘要與條件、例外抽取 | 需要 | DeepSeek V4 Flash | 只產生候選；被動學習輸入必含原問題、既有對話、本次補充與附件內容 |
-| 問題意圖分類、版本／平台候選辨識、查詢改寫、術語擴展建議 | 可選 | 先規則，無法判定時用 Flash | Flash 結果只影響檢索召回，不可繞過版本或審核過濾 |
-| `/judge partial` 的回答拆點、原因摘要與修訂候選歸類 | 可選 | DeepSeek V4 Flash | `/judge` 原始判定與理由為真源；AI 將回答拆為原子知識點供逐項判定，只能協助建立待審反證或修訂建議 |
-| 跨多份文件的 Claim 草稿、版本衝突比較、證據支持與反證整理 | 需要 | DeepSeek V4 Pro | 必須列出每項證據 ID；無充分證據時輸出 `insufficient_evidence` |
-| 複雜使用者問題的最終回答、設計取捨、瓶頸與因果分析 | 需要 | DeepSeek V4 Pro | 只能根據 Evidence Workspace；回答需區分事實、推論與假設 |
-| 簡單術語定義或單一明確證據的回答 | 可選 | Flash 或不呼叫模型 | 優先直接渲染已核准術語／Claim；需要自然語言潤飾時才用 Flash |
-| 審核建議、衝突案件摘要 | 可選 | Pro | 僅協助審核者閱讀，不可替代人工 approve/reject 決策 |
+「執行於」欄位的判斷原則（見〈進程架構〉〈AI 呼叫的執行位置原則〉）：使用者發出命令後預期同一次互動內看到結果 → Bot 同步呼叫；不涉及使用者即時等待、可延後處理 → Worker 背景消費 `ai_jobs`；不需要呼叫模型的純邏輯，依其所屬管線標注執行進程，若兩個進程都會用到則標「共用」。
 
-DeepSeek V4 Flash 適合高頻、低風險、可由人工覆核的候選產生工作；DeepSeek V4 Pro 用於跨證據推理與面向使用者的複雜回答。兩者共用現有 API；`src/config.ts` 以常數 `DEEPSEEK_MODEL_FLASH = 'deepseek-v4-flash'`、`DEEPSEEK_MODEL_PRO = 'deepseek-v4-pro'` 定義模型 ID。只有 `DEEPSEEK_API_KEY` 讀取環境變數。呼叫策略須集中在 `services/ai.ts`，每次呼叫明確選擇 Flash 或 Pro，業務模組不得自行直連模型 API。
+| 工作 | 是否需要 AI | 建議模型 | 執行於 | 規則 |
+| --- | --- | --- | --- | --- |
+| JSON/CSV/Markdown 匯入、雜湊去重、FTS、sqlite-vec 寫入 | 不需要 | 不呼叫模型 | Worker | 必須可重複、可測試且無模型不確定性 |
+| 版本欄位保存、狀態機、權限檢查、引用渲染 | 不需要 | 不呼叫模型 | 共用（純函式，Bot 查詢時與 Worker 匯入時皆呼叫） | 必須可重複、可測試且無模型不確定性 |
+| Markdown 標題切段、表格與程式碼區塊保留 | 不需要 | 不呼叫模型 | Worker（T2.4 文件匯入管線的一部分） | 採結構解析，不由 AI 改寫原文 |
+| 已知術語的精確中英別名匹配 | 不需要 | 不呼叫模型 | 共用（`/ask` 查詢時 Bot 呼叫；匯入比對時 Worker 呼叫） | 以 `term_aliases` 查詢；未知合併才交人工確認 |
+| `/learn` 文字、附件與引用內容的標題建議、候選術語、Candidate Claim 草稿 | 需要 | DeepSeek V4 Flash | **Bot（同步）** | 使用者發出 `/learn` 後同一次互動內等待結果；必須輸出結構化 JSON、保留原文與來源、寫入 `pending` |
+| 主動／被動學習中的知識摘要與條件、例外抽取 | 需要 | DeepSeek V4 Flash | **Worker（背景，經 `ai_jobs` 佇列）** | 使用者不觸發、不等待此結果；只產生候選；被動學習輸入必含原問題、既有對話、本次補充與附件內容 |
+| 問題意圖分類、版本／平台候選辨識、查詢改寫、術語擴展建議 | 可選 | 先規則，無法判定時用 Flash | **Bot（同步，`/ask` 查詢當下即時執行）** | Flash 結果只影響檢索召回，不可繞過版本或審核過濾 |
+| `/judge partial` 的回答拆點、原因摘要與修訂候選歸類 | 可選 | DeepSeek V4 Flash | **Bot（同步）** | 使用者發出 `/judge partial` 後同一次互動內等待拆點結果；`/judge` 原始判定與理由為真源；AI 將回答拆為原子知識點供逐項判定，只能協助建立待審反證或修訂建議 |
+| 跨多份文件的 Claim 草稿、版本衝突比較、證據支持與反證整理 | 需要 | DeepSeek V4 Pro | **Worker（背景，經 `ai_jobs` 佇列，`conflict_review` task）** | 使用者不觸發、不等待此結果；必須列出每項證據 ID；無充分證據時輸出 `insufficient_evidence` |
+| 複雜使用者問題的最終回答、設計取捨、瓶頸與因果分析 | 需要 | DeepSeek V4 Pro | **Bot（同步，`/ask` 使用者在等回覆）** | 只能根據 Evidence Workspace；回答需區分事實、推論與假設 |
+| 簡單術語定義或單一明確證據的回答 | 可選 | Flash 或不呼叫模型 | **Bot（同步，`/ask` 使用者在等回覆）** | 優先直接渲染已核准術語／Claim；需要自然語言潤飾時才用 Flash |
+| 審核建議、衝突案件摘要 | 可選 | Pro | **Bot（同步，審核者透過 `/review` 等待摘要）** | 僅協助審核者閱讀，不可替代人工 approve/reject 決策 |
+
+DeepSeek V4 Flash 適合高頻、低風險、可由人工覆核的候選產生工作；DeepSeek V4 Pro 用於跨證據推理與面向使用者的複雜回答。兩者共用現有 API；`src/config.ts` 以常數 `DEEPSEEK_MODEL_FLASH = 'deepseek-v4-flash'`、`DEEPSEEK_MODEL_PRO = 'deepseek-v4-pro'` 定義模型 ID。只有 `DEEPSEEK_API_KEY` 讀取環境變數。呼叫策略須集中在 `services/ai.ts`，每次呼叫明確選擇 Flash 或 Pro，業務模組不得自行直連模型 API；`services/ai.ts` 本身是與進程無關的共用模組，Bot 與 Worker 皆各自 import 呼叫，不共用連線或行程內狀態。
 
 ### AI JSON 契約
 
