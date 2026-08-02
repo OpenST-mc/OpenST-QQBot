@@ -1,5 +1,6 @@
 // 应用配置模块
 // 所有配置从环境变量读取，不硬编码敏感信息
+import path from 'path'
 
 // QQ Bot 凭证
 export const QQ_APP_ID = process.env['QQ_APP_ID'] || ''
@@ -55,6 +56,13 @@ export const WORKER_URL = process.env['WORKER_URL'] || 'https://api.openstmc.com
 
 // 本地机器数据库路径
 export const DATABASE_PATH = 'public/database/database.json'
+export const PROJECT_ROOT = path.resolve(__dirname, '..')
+export const KNOWLEDGE_DATABASE_PATH = path.join(
+  PROJECT_ROOT,
+  'public',
+  'database',
+  'knowledge.db'
+)
 export const SHARE_BASE_URL = 'https://openstmc.com/api/share?'
 
 // 文件路径

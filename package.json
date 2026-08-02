@@ -4,7 +4,7 @@
   "description": "OpenST QQ Bot - event-driven modular bot platform",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-db-migrations.js",
     "start": "node dist/index.js",
     "audit": "tsc -p tsconfig.scripts.json && node dist-scripts/audit-knowledge-data.js",
     "test:audit": "tsc -p tsconfig.scripts.json && node --test dist-scripts/audit-knowledge-data.test.js dist-scripts/lib/auditCalculations.test.js",
@@ -14,6 +14,7 @@
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
     "axios": "^1.7.2",
+    "better-sqlite3": "^12.4.1",
     "csv-parse": "^5.5.6",
     "dotenv": "^17.4.2",
     "express": "^4.19.2",
@@ -28,6 +29,7 @@
     "yauzl": "^3.4.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^4.17.21",
     "@types/form-data": "^2.2.1",
     "@types/multer": "^1.4.11",

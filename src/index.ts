@@ -10,6 +10,8 @@ import { warmupEmbedding } from './services/embeddings'
 import { initSubmissions, shutdownSubmissions } from './submissions'
 import { shutdownContext } from './services/context'
 import { UPLOAD_FRONTEND_URL } from './config'
+import { closeDatabase } from './db/connection'
+import { runMigrations } from './db/migrate'
 
 // 初始化并启动所有服务
 async function main(): Promise<void> {
@@ -30,6 +32,9 @@ async function main(): Promise<void> {
       '[Index] 警告: 已配置 UPLOAD_FRONTEND_URL 但未设置 UPLOAD_SECRET，/upload 命令将无法生成令牌'
     )
   }
+
+  // schema 未完成时不得开始接收 QQ 事件
+  runMigrations()
 
   // 注册全局消息处理器：事件 -> 路由 -> 命令
   registerHandler(routeMessage)
@@ -60,6 +65,7 @@ process.on('SIGINT', async () => {
   shutdownSubmissions()
   shutdownContext()
   await closeOcr()
+  closeDatabase()
   process.exit(0)
 })
 
@@ -68,11 +74,12 @@ process.on('SIGTERM', async () => {
   shutdownSubmissions()
   shutdownContext()
   await closeOcr()
+  closeDatabase()
   process.exit(0)
 })
 
-main().catch((err: unknown) => {
-  const error = err as Error
-  console.error('[Index] 启动失败:', error.message)
+main().catch((error: unknown) => {
+  console.error('[Index] 启动失败:', error)
+  closeDatabase()
   process.exit(1)
 })
