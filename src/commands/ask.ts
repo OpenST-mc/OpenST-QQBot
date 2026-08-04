@@ -15,6 +15,7 @@ import { askAiWithRecommendations, askAi } from '../services/ai'
 import {
   loadGlossary,
   loadMachineDatabase,
+  loadLearnedKnowledge,
   searchMachines,
   MachineEntry
 } from '../services/data'
@@ -36,8 +37,7 @@ import {
   AI_AGENT_PROMPT_PATH,
   SHARE_BASE_URL,
   SEARCH_IN_ASK,
-  SEARCH_ENABLED,
-  LEARN_CSV_PATH
+  SEARCH_ENABLED
 } from '../config'
 import { parseAttachments } from '../services/attachment'
 import { searchSourceFiles } from '../services/source'
@@ -349,58 +349,4 @@ export async function handleAsk(
     channelId: event.channelId,
     messageId: event.id
   })
-}
-
-// 加载已学知识库（database.csv），返回 topic,content 列表
-function loadLearnedKnowledge(): Array<{ topic: string; content: string }> {
-  if (!fs.existsSync(LEARN_CSV_PATH)) return []
-
-  const raw = fs.readFileSync(LEARN_CSV_PATH, 'utf-8')
-  const lines = raw.split('\n')
-  if (lines.length < 2) return []
-
-  const result: Array<{ topic: string; content: string }> = []
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-    const row = parseSimpleCsvLine(line)
-    if (row && row.length >= 2) {
-      result.push({ topic: row[0], content: row[1] })
-    }
-  }
-  return result
-}
-
-// 简易 CSV 行解析（支持引号内逗号和转义引号）
-function parseSimpleCsvLine(line: string): string[] | null {
-  const result: string[] = []
-  let current = ''
-  let inQuotes = false
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          current += '"'
-          i++
-        } else {
-          inQuotes = false
-        }
-      } else {
-        current += ch
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true
-      } else if (ch === ',') {
-        result.push(current)
-        current = ''
-      } else {
-        current += ch
-      }
-    }
-  }
-  result.push(current)
-  return result.length >= 2 ? result : null
 }

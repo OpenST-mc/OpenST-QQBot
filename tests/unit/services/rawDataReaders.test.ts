@@ -3,14 +3,16 @@
 //
 // 注意：不在此测试中 import '../../../src/commands/ask'。该模块透过
 // services/context.ts 在模块作用域启动 setInterval（未 unref），会让
-// node --test 进程永不退出而挂起整个测试套件；因此改以 LEARN_CSV_PATH +
-// csv-parse 直接验证 /ask、/learn 共用的已学知识 CSV 在迁移后仍可读取。
+// node --test 进程永不退出而挂起整个测试套件；因此 loadLearnedKnowledge
+// 已迁移至无此依赖链的 services/data.ts，测试直接调用该处的导出函数。
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import fs from 'fs'
 import path from 'path'
-import { parse } from 'csv-parse/sync'
-import { loadGlossary, loadMachineDatabase } from '../../../src/services/data'
+import {
+  loadGlossary,
+  loadMachineDatabase,
+  loadLearnedKnowledge
+} from '../../../src/services/data'
 import { matchDictionaryTerms, getAllZhEntries } from '../../../src/services/dictionary'
 import { LEARN_CSV_PATH } from '../../../src/config'
 
@@ -35,15 +37,27 @@ test('getAllZhEntries 从迁移后的 raw/dictionary/zh-translations.json 读到
   assert.ok(entries.some((e) => e.label === '对齐器'))
 })
 
-test('LEARN_CSV_PATH 指向迁移后的 raw/legacy/database.csv 且可读取到已学知识', () => {
+test('LEARN_CSV_PATH 指向迁移后的 raw/legacy/database.csv', () => {
   assert.equal(
     LEARN_CSV_PATH,
     path.join('public', 'database', 'raw', 'legacy', 'database.csv')
   )
-  const raw = fs.readFileSync(LEARN_CSV_PATH, 'utf-8')
-  const records = parse(raw, { columns: true, skip_empty_lines: true }) as Array<{
-    topic: string
-    content: string
-  }>
-  assert.ok(records.some((r) => r.topic === '整流'))
+})
+
+test('loadLearnedKnowledge 从迁移后的 raw/legacy/database.csv 读到全部 151 笔逻辑记录', () => {
+  // 与 docs/data-audit.json 的 legacy_database_csv.logicalRecordCount 基准一致：
+  // 若仍按实体换行切割，带引号换行的多行记录会把总笔数拆多或拆坏，无法维持 151
+  const learned = loadLearnedKnowledge()
+  assert.equal(learned.length, 151)
+})
+
+test('loadLearnedKnowledge 完整读出带引号换行的多行记录，不被截断或拆散', () => {
+  // 对应 public/database/raw/legacy/database.csv:133-142 的真实多行记录：
+  // 简易按行切割的旧实现会在第一个内部换行处截断，只留下标题行内容
+  const learned = loadLearnedKnowledge()
+  const entry = learned.find((l) => l.topic === 'Appendix/专有名词解释')
+  assert.ok(entry, '应能找到该笔多行记录')
+  assert.ok(entry!.content.includes('## 概述'))
+  assert.ok(entry!.content.includes('[#01](./01-栈.md) 栈的概念'))
+  assert.ok(entry!.content.split('\n').length > 1, '内容应保留内部换行，而非被截断为单行')
 })
