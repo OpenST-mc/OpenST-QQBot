@@ -393,23 +393,21 @@ AI 回覆 Fixture 的檔名為**輸入 Raw 內容的正規化 SHA-256**，不使
 模型升級或 prompt 變更時，舊 Fixture **不覆蓋**；以新版本檔案並列保存，
 由評測題庫（T0.4）指定採用版本。
 
-### Raw 根路徑佔位
+### Raw 根路徑
 
-`document-expected.json` 的 `roots.raw`（`public/database/raw/`）是 T1.2b
-完成後的目標路徑；T1.2b 屬於本文件不適用的範圍之外的 Track（見文件開頭），
-本 Track 完成時尚未執行，磁碟上不存在該目錄。
+`document-expected.json` 的 `roots.raw`（`public/database/raw/`）已於 T1.2b
+完成遷移並生效：既有原始知識來源（`gtmc-database/`、`dictionary/`、
+`TechMC Glossary.csv`、`legacy/database.csv`、`legacy/database.md`、
+`legacy/Dictionary.txt`）皆已以 `git mv` 移入該目錄，磁碟上實際存在。
 
-因此 `document-expected.json` 額外提供 `roots.raw_pending_t1_2b` 與
-`raw_root_status` 兩個結構化欄位，而非只靠自由文字說明。重播 runner 解析
-`source_root: 'raw'` 的案例時：
+`document-expected.json` 以 `raw_root_status` 欄位標記此狀態；重播 runner
+解析 `source_root: 'raw'` 的案例時，讀取 `raw_root_status`：
 
-1. 讀取 `raw_root_status`。
-2. 若為 `pending_t1_2b`，以 `roots.raw_pending_t1_2b` 取代 `roots.raw` 作為
-   實際檔案根目錄。
-3. 若為 `migrated`（或該欄位不存在），使用 `roots.raw`。
+1. 若為 `migrated`（或該欄位不存在），直接使用 `roots.raw` 作為實際檔案根目錄。
+2. 不再需要處理 `pending_t1_2b` 佔位狀態或 `roots.raw_pending_t1_2b`
+   欄位——兩者已隨 T1.2b 完成而移除，僅供歷史脈絡參考。
 
-T1.2b 的 PR 必須同時把 `raw_root_status` 改為 `migrated` 並移除
-`raw_pending_t1_2b` 欄位；`normalized_content_hash` 不受路徑遷移影響，不需重算。
+`normalized_content_hash` 不受路徑遷移影響，未重算。
 
 ### Fixture 的 Raw 回鏈佔位
 

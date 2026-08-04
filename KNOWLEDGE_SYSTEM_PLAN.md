@@ -15,12 +15,12 @@
 | 類別 | 現有來源 | 用途 |
 | --- | --- | --- |
 | 機器作品 | `public/database/database.json` | 機器推薦、條件與設計案例 |
-| 社群知識 | `public/database/database.csv` | 已整理的技術知識與人工學習內容 |
-| 社群原始紀錄 | `public/database/database.md` | 匯入時追溯既有知識來源 |
-| 儲存科技詞典 | `public/database/dictionary/` | 英文詞條、中文翻譯、別名與引用關係 |
-| 舊術語對照 | `public/database/Dictionary.txt` | 補充別名與翻譯候選 |
-| 多語詞彙表 | `public/database/TechMC Glossary.csv` | Minecraft 多語術語與定義 |
-| 技術文件初始來源 | `public/database/gtmc-database/` | 通用文件攝取管線的第一批 Markdown 輸入，不具特殊程式邏輯 |
+| 社群知識 | `public/database/raw/legacy/database.csv` | 已整理的技術知識與人工學習內容 |
+| 社群原始紀錄 | `public/database/raw/legacy/database.md` | 匯入時追溯既有知識來源 |
+| 儲存科技詞典 | `public/database/raw/dictionary/` | 英文詞條、中文翻譯、別名與引用關係 |
+| 舊術語對照 | `public/database/raw/legacy/Dictionary.txt` | 補充別名與翻譯候選 |
+| 多語詞彙表 | `public/database/raw/TechMC Glossary.csv` | Minecraft 多語術語與定義 |
+| 技術文件初始來源 | `public/database/raw/gtmc-database/` | 通用文件攝取管線的第一批 Markdown 輸入，不具特殊程式邏輯 |
 
 ### 本期不納入
 

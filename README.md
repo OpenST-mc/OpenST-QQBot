@@ -117,7 +117,7 @@ src/
   services/
     ai.ts               DeepSeek API (chat, recommendations with ID validation)
     data.ts             CSV glossary parser + JSON machine database loader
-    dictionary.ts       Storage Tech Dictionary loader (dictionary/entries/)
+    dictionary.ts       Storage Tech Dictionary loader (raw/dictionary/)
     context.ts          Per-user conversation context (30min TTL, 8-turn max)
     learn.ts            Auto-learning (passive: dialog extraction, active: message extraction)
     embeddings.ts       Sentence-BERT semantic search (local ONNX inference)
@@ -143,13 +143,15 @@ agent/
   AGENTS.md             AI system prompt (behavior rules for DeepSeek)
 public/
   database/
-    database.json       Machine database (keyword-matched, read-only)
-    database.csv        Unified knowledge base (community + GTMC + glossary)
-    database.md         Community-learned knowledge (source)
-    TechMC Glossary.csv Terminology glossary (source)
-    Dictionary.txt      Storage tech dictionary (source)
-    dictionary/         Tech dictionary entries + translations (config.json, entries/, zh-translations.json)
-    gtmc-database/      GTMC reference documents (source)
+    database.json       Machine database (keyword-matched, read-only; T1.4a sync input, not part of raw/)
+    raw/                Canonical root for raw knowledge sources (T1.2b)
+      TechMC Glossary.csv Terminology glossary (source)
+      dictionary/       Tech dictionary entries + translations (config.json, entries/, zh-translations.json)
+      gtmc-database/    GTMC reference documents (source)
+      legacy/
+        database.csv    Unified knowledge base (community + GTMC + glossary)
+        database.md     Community-learned knowledge (source)
+        Dictionary.txt  Storage tech dictionary supplemental candidates (source)
     source/             Source code files (.java, .cpp, etc.) for /ask agent analysis
     submissions.json    Submission audit state (persisted between restarts)
 ```

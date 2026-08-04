@@ -147,12 +147,12 @@ interface LegacyCsvAudit extends LegacyCsvStats {
 }
 
 function readLegacyCsvRecords(rootDir: string): LegacyCsvRecord[] {
-  const content = readText(rootDir, 'public/database/database.csv')
+  const content = readText(rootDir, 'public/database/raw/legacy/database.csv')
   return parseCsv<LegacyCsvRecord>(content)
 }
 
 function auditLegacyCsv(rootDir: string, records: LegacyCsvRecord[]): LegacyCsvAudit {
-  const file = 'public/database/database.csv'
+  const file = 'public/database/raw/legacy/database.csv'
   return {
     file,
     encoding: readEncoding(rootDir, file),
@@ -170,7 +170,7 @@ interface LegacyMarkdownAudit extends LegacyMarkdownStats {
 }
 
 function auditLegacyMarkdown(rootDir: string): LegacyMarkdownAudit {
-  const file = 'public/database/database.md'
+  const file = 'public/database/raw/legacy/database.md'
   return {
     file,
     encoding: readEncoding(rootDir, file),
@@ -189,7 +189,7 @@ interface DictionaryAudit extends DictionaryEntryStats {
 }
 
 function auditDictionary(rootDir: string): DictionaryAudit {
-  const entriesDir = 'public/database/dictionary/entries'
+  const entriesDir = 'public/database/raw/dictionary/entries'
   const entryFiles = readdirSync(join(rootDir, entriesDir)).filter((f) =>
     f.endsWith('.json')
   )
@@ -198,7 +198,7 @@ function auditDictionary(rootDir: string): DictionaryAudit {
       JSON.parse(readText(rootDir, `${entriesDir}/${fileName}`)) as RawDictionaryEntry
   )
 
-  const zhTranslationsFile = 'public/database/dictionary/zh-translations.json'
+  const zhTranslationsFile = 'public/database/raw/dictionary/zh-translations.json'
   const zhTranslations = JSON.parse(
     readText(rootDir, zhTranslationsFile)
   ) as { entries: Array<{ id: string }> }
@@ -234,7 +234,7 @@ interface DictionaryTxtAudit extends DictionaryTxtStats {
 }
 
 function auditDictionaryTxt(rootDir: string): DictionaryTxtAudit {
-  const file = 'public/database/Dictionary.txt'
+  const file = 'public/database/raw/legacy/Dictionary.txt'
   return {
     file,
     encoding: readEncoding(rootDir, file),
@@ -252,7 +252,7 @@ interface GlossaryAudit extends GlossaryStats {
 }
 
 function auditGlossary(rootDir: string): GlossaryAudit {
-  const file = 'public/database/TechMC Glossary.csv'
+  const file = 'public/database/raw/TechMC Glossary.csv'
   const rawBuffer = readFileSync(join(rootDir, file))
   const encoding = detectEncoding(rawBuffer)
   const content = rawBuffer.toString('utf-8')
@@ -300,7 +300,7 @@ function walkMarkdownFiles(dir: string): string[] {
 }
 
 function auditGtmc(rootDir: string, legacyCsvHashes: Set<string>): GtmcAudit {
-  const dir = 'public/database/gtmc-database'
+  const dir = 'public/database/raw/gtmc-database'
   const files = walkMarkdownFiles(join(rootDir, dir))
 
   let headingBlockCount = 0

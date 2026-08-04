@@ -116,7 +116,7 @@ src/
   services/
     ai.ts               DeepSeek API（对话、带 ID 验证的推荐）
     data.ts             CSV 词汇表解析 + JSON 机器数据库加载
-    dictionary.ts       存储技术词典加载（dictionary/entries/）
+    dictionary.ts       存储技术词典加载（raw/dictionary/）
     context.ts          用户独立对话上下文（30min TTL，8 轮上限）
     learn.ts            自动学习（被动：对话提取，主动：消息检测）
     embeddings.ts       Sentence-BERT 语义搜索（本地 ONNX 推理）
@@ -142,13 +142,15 @@ agent/
   AGENTS.md             AI 系统提示词（DeepSeek 行为规则）
 public/
   database/
-    database.json       机器数据库（关键词匹配，只读）
-    database.csv        统一知识库（社区学习+GTMC 文档+术语词汇）
-    database.md         社区学习知识（源文件）
-    TechMC Glossary.csv 术语词汇表（源文件）
-    Dictionary.txt      存储技术词典（源文件）
-    dictionary/         技术词典条目+翻译（config.json, entries/, zh-translations.json）
-    gtmc-database/      GTMC 参考文档（源文件）
+    database.json       机器数据库（关键词匹配，只读；T1.4a 机器同步输入，不属于 raw/）
+    raw/                原始知识来源唯一根目录（T1.2b）
+      TechMC Glossary.csv 术语词汇表（源文件）
+      dictionary/       技术词典条目+翻译（config.json, entries/, zh-translations.json）
+      gtmc-database/    GTMC 参考文档（源文件）
+      legacy/
+        database.csv    统一知识库（社区学习+GTMC 文档+术语词汇）
+        database.md     社区学习知识（源文件）
+        Dictionary.txt  存储技术词典补充候选（源文件）
     source/             源码文件目录（.java, .cpp 等，/ask Agent 分析来源）
     submissions.json    投稿审核状态（重启后持久化恢复）
 ```

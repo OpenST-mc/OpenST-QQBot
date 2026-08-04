@@ -40,7 +40,7 @@
 
 - `/ping` 和 `/upload` 绕过白名单；`/ping` 用于诊断（群返回 group_openid/group_id，私聊返回 user openid），`/upload` 用于投稿上传
 - `/ask` 回复以 Markdown 消息直接发送（QQ 原生支持 `msg_type=2`）；默认注入联网搜索结果到 prompt，`SEARCH_IN_ASK=false` 关闭；支持引用消息/附件作为上下文；AI 无法回答时自动标记待学习并触发联网搜索补充
-- `/learn` 写入 `public/database/database.csv`（topic,content 格式）；支持 `|` 分隔符指定标题和内容；支持引用消息和附件
+- `/learn` 写入 `public/database/raw/legacy/database.csv`（topic,content 格式）；支持 `|` 分隔符指定标题和内容；支持引用消息和附件
 - `/search` 联网搜索，默认 DuckDuckGo Lite（免费），可选 AI 摘要（`SEARCH_AI_SUMMARIZE` 控制）；支持引用消息作为搜索词
 - `/list` 审核专用：查看已认领的投稿稿件，附带通过/拒稿按钮（支持 QQ 键盘交互 + 移动端文本回退）
 
@@ -50,7 +50,7 @@
 |------|------|------|
 | ai | `services/ai.ts` | DeepSeek API 调用，机器推荐注入+验证 |
 | data | `services/data.ts` | CSV 词汇表解析 + JSON 机器数据库加载 |
-| dictionary | `services/dictionary.ts` | 术语词条匹配（`public/database/dictionary/`） |
+| dictionary | `services/dictionary.ts` | 术语词条匹配（`public/database/raw/dictionary/`） |
 | context | `services/context.ts` | 用户独立对话上下文，30min TTL，最多 8 轮 |
 | attachment | `services/attachment.ts` | 附件下载 + OCR（Tesseract.js） |
 | learn | `services/learn.ts` | 对话知识提取写入 CSV |
@@ -74,13 +74,16 @@
 
 | 路径 | 内容 |
 |------|------|
-| `public/database/database.json` | 机器数据库（只读） |
-| `public/database/TechMC Glossary.csv` | 术语词汇表 |
-| `public/database/database.csv` | 统一知识库（社区学习+GTMC文档+术语词汇，`/ask` 语义搜索来源） |
-| `public/database/Dictionary.txt` | 存储技术词典源文件 |
+| `public/database/database.json` | 机器数据库（只读，T1.4a 机器同步输入，不属于 Raw 目录） |
+| `public/database/raw/` | 原始知识来源唯一根目录（T1.2b），供后续 Raw scanner／Worker 使用 |
+| `public/database/raw/TechMC Glossary.csv` | 术语词汇表 |
+| `public/database/raw/legacy/database.csv` | 统一知识库（社区学习+GTMC文档+术语词汇，`/ask` 语义搜索来源） |
+| `public/database/raw/legacy/database.md` | 社区学习知识历史文档 |
+| `public/database/raw/legacy/Dictionary.txt` | 存储技术词典补充候选源文件 |
 | `public/database/submissions.json` | 投稿审核状态持久化（已见 issue、认领关系等，重启后恢复） |
 | `agent/AGENTS.md` | AI 系统提示词（给 DeepSeek 的行为规则） |
-| `public/database/dictionary/` | 存储技术词典（config.json + entries/ + zh-translations.json） |
+| `public/database/raw/dictionary/` | 存储技术词典（config.json + entries/ + zh-translations.json） |
+| `public/database/raw/gtmc-database/` | GTMC 参考文档（通用文件摄取管线的初始 Markdown 输入） |
 | `public/database/source/` | 源码文件目录（`.java`、`.cpp` 等，`/ask` 触发技术关键词时搜索） |
 
 ## Environment

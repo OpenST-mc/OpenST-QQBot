@@ -2,12 +2,11 @@
 // 支持两种模式：
 // 1. 被动学习：AI 无法回答 -> 用户补充 -> 自动提取知识
 // 2. 主动学习：用户 /ask 中直接传授知识 -> 自动提取入库
-// 知识写入 public/database/database.csv（topic,content 格式）
+// 知识写入 public/database/raw/legacy/database.csv（topic,content 格式）
 import fs from 'fs'
 import { askAi } from './ai'
+import { LEARN_CSV_PATH as LEARN_DB_PATH } from '../config'
 
-// 学习数据路径
-const LEARN_DB_PATH = 'public/database/database.csv'
 const CSV_HEADER = 'topic,content\n'
 
 // 知识共享关键词

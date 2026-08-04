@@ -1,7 +1,7 @@
 // /ask 命令处理器
 // 流程：
 // 1. 加载该用户的独立对话上下文 + 检查待学习标记
-// 2. 匹配字典术语（public/database/dictionary）+ CSV 词汇表
+// 2. 匹配字典术语（public/database/raw/dictionary）+ CSV 词汇表
 // 3. 将字典摘要注入 AI 系统提示词
 // 4. 读取 agent/AGENTS.md 作为 AI 行为规则
 // 5. 从本地 public/database/database.json 读取机器数据，按查询匹配候选机器
@@ -15,6 +15,7 @@ import { askAiWithRecommendations, askAi } from '../services/ai'
 import {
   loadGlossary,
   loadMachineDatabase,
+  loadLearnedKnowledge,
   searchMachines,
   MachineEntry
 } from '../services/data'
@@ -32,7 +33,12 @@ import {
   learnFromMessage,
   isLearnableMessage
 } from '../services/learn'
-import { AI_AGENT_PROMPT_PATH, SHARE_BASE_URL, SEARCH_IN_ASK, SEARCH_ENABLED } from '../config'
+import {
+  AI_AGENT_PROMPT_PATH,
+  SHARE_BASE_URL,
+  SEARCH_IN_ASK,
+  SEARCH_ENABLED
+} from '../config'
 import { parseAttachments } from '../services/attachment'
 import { searchSourceFiles } from '../services/source'
 import { analyzeSource } from '../services/agent'
@@ -139,7 +145,7 @@ export async function handleAsk(
       entries.push({ source: 'glossary', label: g.term, text: g.definition })
     }
 
-    // 2. 词典（public/database/dictionary/）
+    // 2. 词典（public/database/raw/dictionary/）
     const dictEntries = getAllZhEntries()
     for (const d of dictEntries) {
       entries.push({ source: 'dictionary', label: d.label, text: d.text })
@@ -343,59 +349,4 @@ export async function handleAsk(
     channelId: event.channelId,
     messageId: event.id
   })
-}
-
-// 加载已学知识库（database.csv），返回 topic,content 列表
-function loadLearnedKnowledge(): Array<{ topic: string; content: string }> {
-  const path = 'public/database/database.csv'
-  if (!fs.existsSync(path)) return []
-
-  const raw = fs.readFileSync(path, 'utf-8')
-  const lines = raw.split('\n')
-  if (lines.length < 2) return []
-
-  const result: Array<{ topic: string; content: string }> = []
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-    const row = parseSimpleCsvLine(line)
-    if (row && row.length >= 2) {
-      result.push({ topic: row[0], content: row[1] })
-    }
-  }
-  return result
-}
-
-// 简易 CSV 行解析（支持引号内逗号和转义引号）
-function parseSimpleCsvLine(line: string): string[] | null {
-  const result: string[] = []
-  let current = ''
-  let inQuotes = false
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i]
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          current += '"'
-          i++
-        } else {
-          inQuotes = false
-        }
-      } else {
-        current += ch
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true
-      } else if (ch === ',') {
-        result.push(current)
-        current = ''
-      } else {
-        current += ch
-      }
-    }
-  }
-  result.push(current)
-  return result.length >= 2 ? result : null
 }

@@ -1,9 +1,9 @@
 // 数据服务层
-// 负责：CSV 词汇表解析、本地 JSON 数据库读取
+// 负责：CSV 词汇表解析、本地 JSON 数据库读取、已学知识 CSV 解析
 // 不包含业务逻辑，仅做数据读取与格式转换
 import fs from 'fs'
 import { parse } from 'csv-parse/sync'
-import { GLOSSARY_CSV_PATH, DATABASE_PATH } from '../config'
+import { GLOSSARY_CSV_PATH, DATABASE_PATH, LEARN_CSV_PATH } from '../config'
 
 // 词汇表条目
 export interface GlossaryEntry {
@@ -77,6 +77,32 @@ export function loadMachineDatabase(): MachineEntry[] {
     tags: Array.isArray(m.tags) ? m.tags : [],
     description: m.description || ''
   }))
+}
+
+// 已学知识条目（/learn 与被动学习写入的 topic,content 记录）
+export interface LearnedKnowledgeEntry {
+  topic: string
+  content: string
+}
+
+// 加载已学知识库（database.csv），返回 topic,content 列表
+// 必须以 RFC 4180 parser 读取：引号内的换行是同一笔逻辑记录的一部分，
+// 按实体换行切割会截断或遗漏多行记录（资料盘点已确认 19 笔多行记录）
+export function loadLearnedKnowledge(): LearnedKnowledgeEntry[] {
+  if (!fs.existsSync(LEARN_CSV_PATH)) return []
+
+  const raw = fs.readFileSync(LEARN_CSV_PATH, 'utf-8')
+  if (!raw.trim()) return []
+
+  const records = parse(raw, {
+    columns: true,
+    skip_empty_lines: true,
+    relax_column_count: true
+  }) as Array<Record<string, string>>
+
+  return records
+    .filter((row) => row['topic'] && row['content'])
+    .map((row) => ({ topic: row['topic'], content: row['content'] }))
 }
 
 // 根据用户输入中的关键词匹配机器
