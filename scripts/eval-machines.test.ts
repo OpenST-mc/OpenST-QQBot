@@ -10,6 +10,7 @@ import {
   computeMachineBaseline,
   compareMachineBaseline,
   validateMachineBaseline,
+  buildMachineBaselineQueries,
   runEvalMachines,
   MachineBaseline,
   MACHINE_BASELINE_SCHEMA_VERSION,
@@ -27,6 +28,9 @@ function writeTempDatabaseFile(dir: string, content: string): string {
   writeFileSync(filePath, content)
   return filePath
 }
+
+// 最小可用的假查詢陣列，僅供不關心 queries 內容本身的測試使用
+const SINGLE_TEST_QUERY = [{ id: 'q1', query: '打包机推薦' }]
 
 let tmpDir: string
 
@@ -86,12 +90,12 @@ describe('computeMachineBaseline 資料雜湊變更', () => {
   it('database.json 內容不同時 databaseSha256 不同', () => {
     const machines: MachineEntry[] = [machine('打包机', 'sub-a', ['打包'])]
     const fileA = writeTempDatabaseFile(tmpDir, '[]')
-    const baselineA = computeMachineBaseline(machines, fileA)
+    const baselineA = computeMachineBaseline(machines, fileA, SINGLE_TEST_QUERY)
 
     const otherDir = mkdtempSync(join(tmpdir(), 'eval-machines-b-'))
     try {
       const fileB = writeTempDatabaseFile(otherDir, '[{"changed":true}]')
-      const baselineB = computeMachineBaseline(machines, fileB)
+      const baselineB = computeMachineBaseline(machines, fileB, SINGLE_TEST_QUERY)
       assert.notEqual(baselineA.databaseSha256, baselineB.databaseSha256)
     } finally {
       rmSync(otherDir, { recursive: true, force: true })
@@ -101,8 +105,8 @@ describe('computeMachineBaseline 資料雜湊變更', () => {
   it('database.json 內容相同時 databaseSha256 相同', () => {
     const machines: MachineEntry[] = [machine('打包机', 'sub-a', ['打包'])]
     const fileA = writeTempDatabaseFile(tmpDir, '[{"same":true}]')
-    const baselineA = computeMachineBaseline(machines, fileA)
-    const baselineB = computeMachineBaseline(machines, fileA)
+    const baselineA = computeMachineBaseline(machines, fileA, SINGLE_TEST_QUERY)
+    const baselineB = computeMachineBaseline(machines, fileA, SINGLE_TEST_QUERY)
     assert.equal(baselineA.databaseSha256, baselineB.databaseSha256)
   })
 
@@ -115,12 +119,67 @@ describe('computeMachineBaseline 資料雜湊變更', () => {
     const otherDir = mkdtempSync(join(tmpdir(), 'eval-machines-crlf-'))
     try {
       const fileCrlf = writeTempDatabaseFile(otherDir, '[\r\n  {"a":1}\r\n]\r\n')
-      const baselineLf = computeMachineBaseline(machines, fileLf)
-      const baselineCrlf = computeMachineBaseline(machines, fileCrlf)
+      const baselineLf = computeMachineBaseline(machines, fileLf, SINGLE_TEST_QUERY)
+      const baselineCrlf = computeMachineBaseline(machines, fileCrlf, SINGLE_TEST_QUERY)
       assert.equal(baselineLf.databaseSha256, baselineCrlf.databaseSha256)
     } finally {
       rmSync(otherDir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('buildMachineBaselineQueries 從 questions.json 讀取覆蓋率', () => {
+  function writeQuestions(dir: string, entries: unknown[]): string {
+    const filePath = join(dir, 'questions.json')
+    writeFileSync(filePath, JSON.stringify(entries))
+    return filePath
+  }
+
+  it('只取 category=machine_recommendation 的題目，其他分類被排除', () => {
+    const file = writeQuestions(tmpDir, [
+      { id: 'machine-001', category: 'machine_recommendation', question: '推薦打包机' },
+      { id: 'term-001', category: 'term_definition', question: '無關題目' }
+    ])
+    const queries = buildMachineBaselineQueries(file)
+    const ids = queries.map((q) => q.id)
+    assert.ok(ids.includes('machine-001'))
+    assert.ok(!ids.includes('term-001'))
+  })
+
+  it('題庫增加新的 machine_recommendation 題目時，回傳的查詢集合會多出該題', () => {
+    const file = writeQuestions(tmpDir, [
+      { id: 'machine-001', category: 'machine_recommendation', question: '推薦打包机' }
+    ])
+    const before = buildMachineBaselineQueries(file).map((q) => q.id)
+    assert.ok(before.includes('machine-001'))
+    assert.ok(!before.includes('machine-999'))
+
+    writeQuestions(tmpDir, [
+      { id: 'machine-001', category: 'machine_recommendation', question: '推薦打包机' },
+      { id: 'machine-999', category: 'machine_recommendation', question: '新題目' }
+    ])
+    const after = buildMachineBaselineQueries(file).map((q) => q.id)
+    assert.ok(after.includes('machine-999'))
+  })
+
+  it('questions.json 沒有任何 machine_recommendation 題目時拋出錯誤', () => {
+    const file = writeQuestions(tmpDir, [
+      { id: 'term-001', category: 'term_definition', question: '無關題目' }
+    ])
+    assert.throws(() => buildMachineBaselineQueries(file), /machine_recommendation/)
+  })
+
+  it('題庫 id 與補充查詢 id 撞名時拋出錯誤', () => {
+    const file = writeQuestions(tmpDir, [
+      { id: 'name-001', category: 'machine_recommendation', question: '撞名題目' }
+    ])
+    assert.throws(() => buildMachineBaselineQueries(file), /id 重複/)
+  })
+
+  it('questions.json 格式錯誤（非陣列）時拋出錯誤而非靜默回傳空集合', () => {
+    const filePath = join(tmpDir, 'questions.json')
+    writeFileSync(filePath, JSON.stringify({ not: 'an array' }))
+    assert.throws(() => buildMachineBaselineQueries(filePath), /陣列/)
   })
 })
 
@@ -209,13 +268,26 @@ describe('validateMachineBaseline 重複 ID 與格式錯誤', () => {
 
 // 端對端：透過 runEvalMachines() 驅動真正的 loadMachineDatabase()/searchMachines()，
 // 用暫時切換 cwd 的方式指向 fixture 目錄，模擬「必須在倉庫根目錄執行」的慣例
+const DEFAULT_TEST_QUESTION_BANK = [
+  { id: 'machine-001', category: 'machine_recommendation', question: '推薦打包机' },
+  { id: 'term-001', category: 'term_definition', question: '無關題目，用來驗證分類會被過濾' }
+]
+
 describe('runEvalMachines CLI', () => {
   let originalCwd: string
 
-  function seedFixtureRepo(dir: string, machines: unknown[]): void {
+  function seedFixtureRepo(
+    dir: string,
+    machines: unknown[],
+    questions: unknown[] = DEFAULT_TEST_QUESTION_BANK
+  ): void {
     const dbDir = join(dir, 'public', 'database')
     mkdirSync(dbDir, { recursive: true })
     writeFileSync(join(dbDir, 'database.json'), JSON.stringify(machines))
+
+    const evalDir = join(dir, 'eval')
+    mkdirSync(evalDir, { recursive: true })
+    writeFileSync(join(evalDir, 'questions.json'), JSON.stringify(questions))
   }
 
   beforeEach(() => {
@@ -344,5 +416,34 @@ describe('runEvalMachines CLI', () => {
     })
     assert.equal(exit, 1)
     assert.ok(logs.some((l) => l.includes('重複 id')))
+  })
+
+  // 對應覆蓋率疑慮：machine_recommendation 題目改由 questions.json 直接讀取，
+  // 題庫新增題目後，即使沒有人手動同步 eval-machines.ts，驗證也必須自動
+  // 偵測到覆蓋範圍變化並要求審核，而不是悄悄用舊的查詢集合通過
+  it('questions.json 新增 machine_recommendation 題目後，驗證會偵測到新案例', () => {
+    seedFixtureRepo(
+      tmpDir,
+      [{ name: '打包机', author: 'A', tags: ['打包'], description: '', sub_id: 'sub-a' }],
+      [{ id: 'machine-001', category: 'machine_recommendation', question: '推薦打包机' }]
+    )
+    process.chdir(tmpDir)
+    const writeIo = { log: () => {}, error: () => {} }
+    runEvalMachines(tmpDir, ['--write'], writeIo)
+
+    seedFixtureRepo(
+      tmpDir,
+      [{ name: '打包机', author: 'A', tags: ['打包'], description: '', sub_id: 'sub-a' }],
+      [
+        { id: 'machine-001', category: 'machine_recommendation', question: '推薦打包机' },
+        { id: 'machine-999', category: 'machine_recommendation', question: '新增的題目' }
+      ]
+    )
+
+    const logs: string[] = []
+    const verifyIo = { log: (m: string) => logs.push(m), error: (m: string) => logs.push(m) }
+    const exit = runEvalMachines(tmpDir, [], verifyIo)
+    assert.equal(exit, 1)
+    assert.ok(logs.some((l) => l.includes('machine-999') && l.includes('新增')))
   })
 })

@@ -13,6 +13,8 @@ import { sha256, normalizeLineEndings } from './lib/auditCalculations'
 export const MACHINE_BASELINE_SCHEMA_VERSION = 1
 export const MACHINE_DATABASE_RELATIVE_PATH = 'public/database/database.json'
 export const MACHINE_BASELINE_RELATIVE_PATH = 'eval/baseline-machines.json'
+export const MACHINE_QUESTIONS_RELATIVE_PATH = 'eval/questions.json'
+const MACHINE_RECOMMENDATION_CATEGORY = 'machine_recommendation'
 
 export interface MachineBaselineQuery {
   id: string
@@ -30,20 +32,77 @@ export interface MachineBaseline {
   cases: MachineBaselineCase[]
 }
 
-// 延伸自 eval/questions.json 的 machine_recommendation 題目（machine-001~004），
-// 並補上名稱、命中作者、標籤、英文/版本詞與沒有命中的查詢，
-// 確保 baseline 覆蓋 T1.5a 要求的全部查詢類型
-export const MACHINE_BASELINE_QUERIES: MachineBaselineQuery[] = [
-  { id: 'machine-001', query: '推薦適合 Java 1.20+ 的不可堆疊物品打包機器。' },
-  { id: 'machine-002', query: '有作者是 Maizuma 的機器推薦嗎？' },
-  { id: 'machine-003', query: '推薦一個有分類功能的機器。' },
-  { id: 'machine-004', query: '我需要生電機器，目錄裡有哪些選擇？' },
+// 補充 eval/questions.json 沒有涵蓋的查詢類型：命中名稱、命中作者、tag、
+// 英文/版本詞與沒有命中的查詢。machine_recommendation 題目本身改由
+// loadMachineRecommendationQueries() 直接讀題庫，不在此手動複製一份，
+// 避免題庫增修後這裡沒同步更新、覆蓋率悄悄過期卻不會被發現
+export const SUPPLEMENTARY_MACHINE_BASELINE_QUERIES: MachineBaselineQuery[] = [
   { id: 'name-001', query: '0t 堆肥桶可访问打包机怎么用？' },
   { id: 'author-001', query: 'Floppy 做过哪些机器？' },
   { id: 'tag-001', query: '潜影盒打包机相关的机器有哪些' },
   { id: 'version-001', query: '1.21.x 版本有哪些机器可以用' },
   { id: 'nohit-001', query: 'zzz这是一个不存在的查询关键字qwerty12345' }
 ]
+
+interface QuestionBankEntry {
+  id: string
+  category: string
+  question: string
+}
+
+function isQuestionBankEntry(value: unknown): value is QuestionBankEntry {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const e = value as Record<string, unknown>
+  return (
+    typeof e['id'] === 'string' && typeof e['category'] === 'string' &&
+    typeof e['question'] === 'string'
+  )
+}
+
+// 直接讀 eval/questions.json 取出 machine_recommendation 題目，題庫增修時
+// 這裡會自動反映，不需要另外同步一份查詢字串
+function loadMachineRecommendationQueries(
+  questionsAbsolutePath: string
+): MachineBaselineQuery[] {
+  const raw = JSON.parse(readFileSync(questionsAbsolutePath, 'utf-8')) as unknown
+  if (!Array.isArray(raw)) {
+    throw new Error(`${MACHINE_QUESTIONS_RELATIVE_PATH} 頂層必須是陣列`)
+  }
+  const invalidIndex = raw.findIndex((entry) => !isQuestionBankEntry(entry))
+  if (invalidIndex !== -1) {
+    throw new Error(
+      `${MACHINE_QUESTIONS_RELATIVE_PATH} 第 ${invalidIndex} 筆缺少 id/category/question`
+    )
+  }
+  return (raw as QuestionBankEntry[])
+    .filter((entry) => entry.category === MACHINE_RECOMMENDATION_CATEGORY)
+    .map((entry) => ({ id: entry.id, query: entry.question }))
+}
+
+// 題庫題目 + 補充查詢的完整組合；題庫是空的（例如分類名稱被改掉）或與補充
+// 查詢 id 撞名都直接拋錯，不要靜默產生覆蓋不足的 baseline
+export function buildMachineBaselineQueries(
+  questionsAbsolutePath: string
+): MachineBaselineQuery[] {
+  const fromQuestionBank = loadMachineRecommendationQueries(questionsAbsolutePath)
+  if (fromQuestionBank.length === 0) {
+    throw new Error(
+      `${MACHINE_QUESTIONS_RELATIVE_PATH} 沒有任何 category="${MACHINE_RECOMMENDATION_CATEGORY}" 的題目`
+    )
+  }
+
+  const queries = [...fromQuestionBank, ...SUPPLEMENTARY_MACHINE_BASELINE_QUERIES]
+  const ids = queries.map((q) => q.id)
+  const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))]
+  if (duplicateIds.length > 0) {
+    throw new Error(
+      `machine_recommendation 題目與補充查詢的 id 重複：${duplicateIds.join(', ')}`
+    )
+  }
+  return queries
+}
 
 function isMachineBaselineCase(value: unknown): value is MachineBaselineCase {
   if (typeof value !== 'object' || value === null) {
@@ -112,7 +171,7 @@ function sha256TextFile(absolutePath: string): string {
 export function computeMachineBaseline(
   machines: MachineEntry[],
   databaseAbsolutePath: string,
-  queries: MachineBaselineQuery[] = MACHINE_BASELINE_QUERIES
+  queries: MachineBaselineQuery[]
 ): MachineBaseline {
   const cases = queries.map(({ id, query }) => ({
     id,
@@ -214,13 +273,15 @@ export interface EvalIo {
 export function runEvalMachines(rootDir: string, argv: string[], io: EvalIo): number {
   const databaseAbsolutePath = join(rootDir, MACHINE_DATABASE_RELATIVE_PATH)
   const baselineAbsolutePath = join(rootDir, MACHINE_BASELINE_RELATIVE_PATH)
+  const questionsAbsolutePath = join(rootDir, MACHINE_QUESTIONS_RELATIVE_PATH)
   const shouldWrite = argv.includes('--write')
 
   let current: MachineBaseline
   try {
     const machines = loadMachineDatabase()
+    const queries = buildMachineBaselineQueries(questionsAbsolutePath)
     current = validateMachineBaseline(
-      computeMachineBaseline(machines, databaseAbsolutePath),
+      computeMachineBaseline(machines, databaseAbsolutePath, queries),
       '目前重新計算的結果'
     )
   } catch (error) {
