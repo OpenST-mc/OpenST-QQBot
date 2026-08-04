@@ -45,6 +45,60 @@ export const MACHINE_BASELINE_QUERIES: MachineBaselineQuery[] = [
   { id: 'nohit-001', query: 'zzz这是一个不存在的查询关键字qwerty12345' }
 ]
 
+function isMachineBaselineCase(value: unknown): value is MachineBaselineCase {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const c = value as Record<string, unknown>
+  return (
+    typeof c['id'] === 'string' &&
+    typeof c['query'] === 'string' &&
+    Array.isArray(c['topSubIds']) &&
+    c['topSubIds'].every((s) => typeof s === 'string')
+  )
+}
+
+// 驗證 baseline 形狀（不論來自已提交檔案的 JSON.parse 結果，或本次重新計算的
+// 結果），並拒絕重複 case id——重複 id 若不擋下來，後續以 Map 建索引時會
+// 靜默丟棄較早的那筆，讓「案例缺失」偵測失效
+export function validateMachineBaseline(value: unknown, sourceLabel: string): MachineBaseline {
+  const errors: string[] = []
+  const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
+
+  if (typeof v['schemaVersion'] !== 'number') {
+    errors.push('schemaVersion 必須是數字')
+  }
+  if (typeof v['databasePath'] !== 'string') {
+    errors.push('databasePath 必須是字串')
+  }
+  if (typeof v['databaseSha256'] !== 'string') {
+    errors.push('databaseSha256 必須是字串')
+  }
+
+  const rawCases = v['cases']
+  if (!Array.isArray(rawCases)) {
+    errors.push('cases 必須是陣列')
+  } else {
+    rawCases.forEach((c, index) => {
+      if (!isMachineBaselineCase(c)) {
+        errors.push(`cases[${index}] 缺少 id/query/topSubIds 或型別錯誤`)
+      }
+    })
+
+    const validCases = rawCases.filter(isMachineBaselineCase)
+    const ids = validCases.map((c) => c.id)
+    const duplicateIds = [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))]
+    if (duplicateIds.length > 0) {
+      errors.push(`cases 內有重複 id：${duplicateIds.join(', ')}`)
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`${sourceLabel} 格式不正確：${errors.join('；')}`)
+  }
+  return value as MachineBaseline
+}
+
 // 本倉庫 core.autocrlf=true，database.json 未在 .gitattributes 強制 LF：
 // 同一次提交在 Windows／Linux checkout 出來的位元組不同，直接雜湊原始位元組
 // 會讓 databaseSha256 隨平台跳動。換行正規化後再雜湊，做法與
@@ -98,7 +152,17 @@ export function compareMachineBaseline(
     )
   }
 
+  // 資料雜湊不符必須讓驗證失敗，不能只當作附註記錄：baseline 是綁定特定
+  // database.json 內容的快照，內容一變就代表這份快照的有效性需要人工重新
+  // 審核，即使剛好所有查詢的 top-5 sub_id 沒有改變也一樣
   const databaseChanged = baseline.databaseSha256 !== current.databaseSha256
+  if (databaseChanged) {
+    diffs.push(
+      `${MACHINE_DATABASE_RELATIVE_PATH} 的 SHA-256 已變更：` +
+        `baseline=${baseline.databaseSha256} 目前=${current.databaseSha256}` +
+        '（需人工審核資料異動是否影響推薦結果，再以 --write 更新 baseline）'
+    )
+  }
 
   const baselineById = new Map(baseline.cases.map((c) => [c.id, c]))
   const currentById = new Map(current.cases.map((c) => [c.id, c]))
@@ -155,7 +219,10 @@ export function runEvalMachines(rootDir: string, argv: string[], io: EvalIo): nu
   let current: MachineBaseline
   try {
     const machines = loadMachineDatabase()
-    current = computeMachineBaseline(machines, databaseAbsolutePath)
+    current = validateMachineBaseline(
+      computeMachineBaseline(machines, databaseAbsolutePath),
+      '目前重新計算的結果'
+    )
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     io.error(`無法重新計算機器推薦 baseline（資料可能已刪除或格式損壞）：${detail}`)
@@ -174,15 +241,17 @@ export function runEvalMachines(rootDir: string, argv: string[], io: EvalIo): nu
     return 1
   }
 
-  const baseline = JSON.parse(readFileSync(baselineAbsolutePath, 'utf-8')) as MachineBaseline
-  const { diffs, databaseChanged } = compareMachineBaseline(baseline, current)
-
-  if (databaseChanged) {
-    io.log(
-      `注意：${MACHINE_DATABASE_RELATIVE_PATH} 的 SHA-256 已與 baseline 記錄不同` +
-        '（資料內容已更新）'
-    )
+  let baseline: MachineBaseline
+  try {
+    const raw = JSON.parse(readFileSync(baselineAbsolutePath, 'utf-8')) as unknown
+    baseline = validateMachineBaseline(raw, MACHINE_BASELINE_RELATIVE_PATH)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    io.error(`無法讀取 baseline（JSON 損壞或格式不正確）：${detail}`)
+    return 1
   }
+
+  const { diffs } = compareMachineBaseline(baseline, current)
 
   if (diffs.length === 0) {
     io.log('機器推薦 baseline 無差異，top-5 sub_id 與記錄完全一致')

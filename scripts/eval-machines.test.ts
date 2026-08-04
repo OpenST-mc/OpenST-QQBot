@@ -9,6 +9,7 @@ import { MachineEntry } from '../src/services/data'
 import {
   computeMachineBaseline,
   compareMachineBaseline,
+  validateMachineBaseline,
   runEvalMachines,
   MachineBaseline,
   MACHINE_BASELINE_SCHEMA_VERSION,
@@ -163,12 +164,46 @@ describe('compareMachineBaseline baseline 不一致', () => {
     assert.ok(result.diffs.some((d) => d.includes('q2') && d.includes('新增')))
   })
 
-  it('databaseSha256 不同時標記 databaseChanged 但不視為 diff', () => {
+  it('databaseSha256 不同時標記 databaseChanged 且視為 diff（即使 top-5 沒變）', () => {
     const baseline = makeBaseline({ databaseSha256: 'hash-1' })
     const current = makeBaseline({ databaseSha256: 'hash-2' })
     const result = compareMachineBaseline(baseline, current)
     assert.equal(result.databaseChanged, true)
-    assert.deepEqual(result.diffs, [])
+    assert.equal(result.diffs.length, 1)
+    assert.match(result.diffs[0], /SHA-256/)
+  })
+})
+
+describe('validateMachineBaseline 重複 ID 與格式錯誤', () => {
+  it('cases 內有重複 id 時拋出錯誤', () => {
+    const malformed = {
+      schemaVersion: MACHINE_BASELINE_SCHEMA_VERSION,
+      databasePath: MACHINE_DATABASE_RELATIVE_PATH,
+      databaseSha256: 'hash-1',
+      cases: [
+        { id: 'q1', query: 'A', topSubIds: ['sub-a'] },
+        { id: 'q1', query: 'B', topSubIds: ['sub-b'] }
+      ]
+    }
+    assert.throws(() => validateMachineBaseline(malformed, 'test'), /重複 id/)
+  })
+
+  it('缺少必要欄位時拋出錯誤而非靜默通過', () => {
+    assert.throws(() => validateMachineBaseline({ cases: [] }, 'test'), /格式不正確/)
+  })
+
+  it('case 缺少 topSubIds 時拋出錯誤', () => {
+    const malformed = {
+      schemaVersion: 1,
+      databasePath: MACHINE_DATABASE_RELATIVE_PATH,
+      databaseSha256: 'hash-1',
+      cases: [{ id: 'q1', query: 'A' }]
+    }
+    assert.throws(() => validateMachineBaseline(malformed, 'test'), /cases\[0\]/)
+  })
+
+  it('合法形狀不拋出錯誤', () => {
+    assert.doesNotThrow(() => validateMachineBaseline(makeBaseline(), 'test'))
   })
 })
 
@@ -240,5 +275,74 @@ describe('runEvalMachines CLI', () => {
     const exit = runEvalMachines(tmpDir, [], verifyIo)
     assert.equal(exit, 1)
     assert.ok(logs.some((l) => l.includes('不一致')))
+  })
+
+  it('baseline 檔案是損壞的 JSON 時回傳非零，不拋出未捕捉例外', () => {
+    seedFixtureRepo(tmpDir, [
+      { name: '打包机', author: 'A', tags: ['打包'], description: '', sub_id: 'sub-a' }
+    ])
+    process.chdir(tmpDir)
+    mkdirSync(join(tmpDir, 'eval'), { recursive: true })
+    writeFileSync(join(tmpDir, 'eval', 'baseline-machines.json'), '{ not valid json')
+
+    const logs: string[] = []
+    const io = { log: (m: string) => logs.push(m), error: (m: string) => logs.push(m) }
+
+    let exit = -1
+    assert.doesNotThrow(() => {
+      exit = runEvalMachines(tmpDir, [], io)
+    })
+    assert.equal(exit, 1)
+    assert.ok(logs.some((l) => l.includes('JSON')))
+  })
+
+  it('baseline 檔案缺少必要欄位時回傳非零，不拋出未捕捉例外', () => {
+    seedFixtureRepo(tmpDir, [
+      { name: '打包机', author: 'A', tags: ['打包'], description: '', sub_id: 'sub-a' }
+    ])
+    process.chdir(tmpDir)
+    mkdirSync(join(tmpDir, 'eval'), { recursive: true })
+    writeFileSync(join(tmpDir, 'eval', 'baseline-machines.json'), JSON.stringify({ cases: [] }))
+
+    const logs: string[] = []
+    const io = { log: (m: string) => logs.push(m), error: (m: string) => logs.push(m) }
+
+    let exit = -1
+    assert.doesNotThrow(() => {
+      exit = runEvalMachines(tmpDir, [], io)
+    })
+    assert.equal(exit, 1)
+    assert.ok(logs.some((l) => l.includes('格式不正確')))
+  })
+
+  it('baseline 檔案內有重複 case id 時回傳非零，不拋出未捕捉例外', () => {
+    seedFixtureRepo(tmpDir, [
+      { name: '打包机', author: 'A', tags: ['打包'], description: '', sub_id: 'sub-a' }
+    ])
+    process.chdir(tmpDir)
+    mkdirSync(join(tmpDir, 'eval'), { recursive: true })
+    const duplicateBaseline = {
+      schemaVersion: MACHINE_BASELINE_SCHEMA_VERSION,
+      databasePath: MACHINE_DATABASE_RELATIVE_PATH,
+      databaseSha256: 'irrelevant',
+      cases: [
+        { id: 'dup', query: 'A', topSubIds: [] },
+        { id: 'dup', query: 'B', topSubIds: [] }
+      ]
+    }
+    writeFileSync(
+      join(tmpDir, 'eval', 'baseline-machines.json'),
+      JSON.stringify(duplicateBaseline)
+    )
+
+    const logs: string[] = []
+    const io = { log: (m: string) => logs.push(m), error: (m: string) => logs.push(m) }
+
+    let exit = -1
+    assert.doesNotThrow(() => {
+      exit = runEvalMachines(tmpDir, [], io)
+    })
+    assert.equal(exit, 1)
+    assert.ok(logs.some((l) => l.includes('重複 id')))
   })
 })
