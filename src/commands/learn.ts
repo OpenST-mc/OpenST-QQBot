@@ -1,12 +1,12 @@
 // /learn 命令处理器
 // 用户显式传授知识，支持文本 + 附件（图片OCR/文件解析）
 // 格式: /learn <标题> | <内容>
-// 写入 public/database/database.csv
+// 写入 public/database/raw/legacy/database.csv
 import fs from 'fs'
 import { QqMessageEvent, sendMessage } from '../bot/adapter'
 import { parseAttachments } from '../services/attachment'
+import { LEARN_CSV_PATH } from '../config'
 
-const LEARN_CSV_PATH = 'public/database/database.csv'
 const CSV_HEADER = 'topic,content\n'
 
 // 按字符（码点）安全截断，避免多字节 CJK/emoji 字符被截断

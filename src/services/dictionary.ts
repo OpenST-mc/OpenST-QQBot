@@ -1,8 +1,9 @@
 // 专业术语知识库服务
-// 加载 public/database/dictionary/config.json + entries/ + zh-translations.json
+// 加载 public/database/raw/dictionary/config.json + zh-translations.json
 // 用于 AI prompt 术语匹配与中文知识注入
 import fs from 'fs'
 import path from 'path'
+import { DICTIONARY_DIR } from '../config'
 
 // 词条配置（来自 config.json）
 interface EntryConfig {
@@ -33,8 +34,8 @@ let entryConfigs: EntryConfig[] | null = null
 let zhEntries: ZhEntry[] | null = null
 
 // 路径常量
-const CONFIG_PATH = path.join('public', 'database', 'dictionary', 'config.json')
-const ZH_PATH = path.join('public', 'database', 'dictionary', 'zh-translations.json')
+const CONFIG_PATH = path.join(DICTIONARY_DIR, 'config.json')
+const ZH_PATH = path.join(DICTIONARY_DIR, 'zh-translations.json')
 
 // 加载 config.json 词条索引
 function loadConfig(): EntryConfig[] {

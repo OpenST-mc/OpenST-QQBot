@@ -66,7 +66,19 @@ export const KNOWLEDGE_DATABASE_PATH = path.join(
 export const SHARE_BASE_URL = 'https://openstmc.com/api/share?'
 
 // 文件路径
-export const GLOSSARY_CSV_PATH = 'public/database/TechMC Glossary.csv'
+// Raw 原始資料根目錄（T1.2b）：既有原始知識來源的唯一 canonical 位置，
+// 供未來 T1.2a Raw scanner／Worker 使用；database.json 不在此目錄下，
+// 仍留在 public/database/ 原位，因為它是 T1.4a 機器同步的輸入
+export const RAW_DATABASE_DIR = 'public/database/raw'
+export const GTMC_DATABASE_DIR = path.join(RAW_DATABASE_DIR, 'gtmc-database')
+export const DICTIONARY_DIR = path.join(RAW_DATABASE_DIR, 'dictionary')
+export const GLOSSARY_CSV_PATH = path.join(RAW_DATABASE_DIR, 'TechMC Glossary.csv')
+// legacy/ 對應計畫 Raw 目錄配置中與 database.csv、database.md 同列的
+// 舊術語對照，避免其繼承 dictionary/ 的正式詞典署名姿態
+export const LEGACY_RAW_DIR = path.join(RAW_DATABASE_DIR, 'legacy')
+export const LEARN_CSV_PATH = path.join(LEGACY_RAW_DIR, 'database.csv')
+export const LEGACY_MARKDOWN_PATH = path.join(LEGACY_RAW_DIR, 'database.md')
+export const LEGACY_DICTIONARY_TXT_PATH = path.join(LEGACY_RAW_DIR, 'Dictionary.txt')
 export const SOURCE_DATABASE_PATH = 'public/database/source'
 export const AI_AGENT_PROMPT_PATH = 'agent/AGENTS.md'
 

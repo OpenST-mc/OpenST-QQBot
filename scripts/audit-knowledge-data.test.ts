@@ -11,9 +11,13 @@ import { buildReport, runAudit } from './audit-knowledge-data'
 let rootDir: string
 
 // 建立最小合法的 public/database/ 樹狀結構，數字皆為容易驗證的小樣本
+// Raw 來源（gtmc-database、dictionary、TechMC Glossary.csv、legacy/）位於
+// public/database/raw/ 下（T1.2b）；database.json 留在 public/database/ 原位
 function seedFixtureRepo(dir: string): void {
   const dbDir = join(dir, 'public', 'database')
-  mkdirSync(dbDir, { recursive: true })
+  const rawDir = join(dbDir, 'raw')
+  const legacyDir = join(rawDir, 'legacy')
+  mkdirSync(legacyDir, { recursive: true })
 
   writeFileSync(
     join(dbDir, 'database.json'),
@@ -24,16 +28,16 @@ function seedFixtureRepo(dir: string): void {
   )
 
   writeFileSync(
-    join(dbDir, 'database.csv'),
+    join(legacyDir, 'database.csv'),
     'topic,content\n' +
       '整流,單行內容\n' +
       '"多行","第一行\n第二行"\n'
   )
 
-  writeFileSync(join(dbDir, 'database.md'), '# 標題\n內容\n## 子標題\n')
+  writeFileSync(join(legacyDir, 'database.md'), '# 標題\n內容\n## 子標題\n')
 
   writeFileSync(
-    join(dbDir, 'Dictionary.txt'),
+    join(legacyDir, 'Dictionary.txt'),
     'Aligner-矫正器\n沒有分隔符的行\n'
   )
 
@@ -42,9 +46,9 @@ function seedFixtureRepo(dir: string): void {
     'Category,Short Form,Full Form (English)\n' +
     'A,BUD,Block Update Detector\n' +
     'B,,Something\n'
-  writeFileSync(join(dbDir, 'TechMC Glossary.csv'), glossaryContent)
+  writeFileSync(join(rawDir, 'TechMC Glossary.csv'), glossaryContent)
 
-  const entriesDir = join(dbDir, 'dictionary', 'entries')
+  const entriesDir = join(rawDir, 'dictionary', 'entries')
   mkdirSync(entriesDir, { recursive: true })
   writeFileSync(
     join(entriesDir, '1.json'),
@@ -55,11 +59,11 @@ function seedFixtureRepo(dir: string): void {
     JSON.stringify({ id: '2', terms: [], definition: '', status: 'PENDING' })
   )
   writeFileSync(
-    join(dbDir, 'dictionary', 'zh-translations.json'),
+    join(rawDir, 'dictionary', 'zh-translations.json'),
     JSON.stringify({ entries: [{ id: '1', termsZh: '方块更新检测器', definitionZh: '定義' }] })
   )
 
-  const gtmcDir = join(dbDir, 'gtmc-database')
+  const gtmcDir = join(rawDir, 'gtmc-database')
   mkdirSync(gtmcDir, { recursive: true })
   const rootImageDir = join(dir, 'images')
   mkdirSync(rootImageDir, { recursive: true })
@@ -102,7 +106,10 @@ describe('buildReport', () => {
     assert.equal(report.sources.storage_tech_dictionary.missingZhTranslationCount, 1)
     // Dictionary.txt 是獨立的待審翻譯候選來源，不隸屬已核准的正式詞典
     assert.equal(report.sources.legacy_dictionary_txt.malformedLineCount, 1)
-    assert.equal(report.sources.legacy_dictionary_txt.file, 'public/database/Dictionary.txt')
+    assert.equal(
+      report.sources.legacy_dictionary_txt.file,
+      'public/database/raw/legacy/Dictionary.txt'
+    )
 
     assert.equal(report.sources.techmc_glossary.encoding, 'utf-8-bom')
     assert.deepEqual(report.sources.techmc_glossary.columns, [
@@ -124,7 +131,7 @@ describe('buildReport', () => {
   // 連帶讓 D1 誤判成欄位缺失
   it('詞彙表只有表頭沒有資料列時，仍正確登記欄名與 D1 狀態', () => {
     writeFileSync(
-      join(rootDir, 'public', 'database', 'TechMC Glossary.csv'),
+      join(rootDir, 'public', 'database', 'raw', 'TechMC Glossary.csv'),
       '﻿Category,term,definition\n'
     )
 
@@ -137,13 +144,13 @@ describe('buildReport', () => {
   })
 
   it('GTMC 內容與 database.csv 逐字重複時計入 duplicateWithLegacyCsvCount', () => {
-    const dbDir = join(rootDir, 'public', 'database')
+    const rawDir = join(rootDir, 'public', 'database', 'raw')
     writeFileSync(
-      join(dbDir, 'database.csv'),
+      join(rawDir, 'legacy', 'database.csv'),
       'topic,content\n' + '整流,一段與 GTMC 逐字重複的內容\n'
     )
     writeFileSync(
-      join(dbDir, 'gtmc-database', 'dup-of-csv.md'),
+      join(rawDir, 'gtmc-database', 'dup-of-csv.md'),
       '一段與 GTMC 逐字重複的內容'
     )
 
@@ -211,7 +218,7 @@ describe('runAudit', () => {
   it('僅改寫 GTMC 正文而不影響任何統計時，仍以逐檔雜湊偵測到變更', () => {
     runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
 
-    const target = join(rootDir, 'public', 'database', 'gtmc-database', 'normal.md')
+    const target = join(rootDir, 'public', 'database', 'raw', 'gtmc-database', 'normal.md')
     const before = readFileSync(target, 'utf-8')
     // 同樣一個標題、同樣沒有連結、長度同樣超過 stub 門檻，只換掉正文字元
     const after = `# 正常文件\n${'改寫'.repeat(30)}\n![圖片](img/missing.png)`
@@ -239,7 +246,7 @@ describe('runAudit', () => {
     runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
 
     // 模擬 D1 那類缺陷：把 Short Form 改名為 term
-    const glossary = join(rootDir, 'public', 'database', 'TechMC Glossary.csv')
+    const glossary = join(rootDir, 'public', 'database', 'raw', 'TechMC Glossary.csv')
     writeFileSync(
       glossary,
       '﻿' + 'Category,term,Full Form (English)\n' + 'A,BUD,Block Update Detector\n'
@@ -293,7 +300,7 @@ describe('runAudit', () => {
   // 來源檔消失是變更的一種，要有可讀報告而不是 ENOENT 堆疊
   it('來源檔被刪除時回傳非零並輸出可讀訊息，不拋出未處理例外', () => {
     runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
-    rmSync(join(rootDir, 'public', 'database', 'database.csv'))
+    rmSync(join(rootDir, 'public', 'database', 'raw', 'legacy', 'database.csv'))
 
     const { error, io } = makeIo()
     const exitCode = runAudit(rootDir, [], io)
@@ -304,7 +311,7 @@ describe('runAudit', () => {
   it('逐檔雜湊可偵測新增與刪除來源檔案', () => {
     runAudit(rootDir, ['--write'], { log: () => {}, error: () => {} })
 
-    const added = join(rootDir, 'public', 'database', 'gtmc-database', 'img', 'new.png')
+    const added = join(rootDir, 'public', 'database', 'raw', 'gtmc-database', 'img', 'new.png')
     mkdirSync(dirname(added), { recursive: true })
     writeFileSync(added, Buffer.from([1, 2, 3]))
 
