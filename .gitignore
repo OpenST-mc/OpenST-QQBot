@@ -13,5 +13,6 @@ yarn-error.log*
 /dist/
 /dist-scripts/
 /dist-tests/
+/dist-eval-machines/
 /.idea/
 public/database/submissions.json

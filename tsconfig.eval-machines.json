@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-eval-machines"
+  },
+  "include": ["scripts/eval-machines.ts", "scripts/eval-machines.test.ts", "src"]
+}

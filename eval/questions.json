@@ -235,7 +235,7 @@
     "forbidden_source_ids": [],
     "expected_answer_properties": ["只推薦目錄中存在的機器", "提供 OpenST 連結"],
     "expected_uncertainty": "沒有匹配機器時明確說明",
-    "status": "draft"
+    "status": "approved"
   },
   {
     "id": "machine-002",
@@ -249,7 +249,7 @@
     "forbidden_source_ids": [],
     "expected_answer_properties": ["依作者比對", "只輸出實際存在的作品"],
     "expected_uncertainty": "作者未命中時不得編造結果",
-    "status": "draft"
+    "status": "approved"
   },
   {
     "id": "machine-003",
@@ -263,7 +263,7 @@
     "forbidden_source_ids": [],
     "expected_answer_properties": ["依名稱或標籤推薦", "最多列出五項候選"],
     "expected_uncertainty": "意圖過寬時說明篩選條件不足",
-    "status": "draft"
+    "status": "approved"
   },
   {
     "id": "machine-004",
@@ -277,7 +277,7 @@
     "forbidden_source_ids": [],
     "expected_answer_properties": ["使用現有目錄資料", "不臆測機器效能"],
     "expected_uncertainty": "缺少版本和規模時提示限制",
-    "status": "draft"
+    "status": "approved"
   },
   {
     "id": "conflict-001",

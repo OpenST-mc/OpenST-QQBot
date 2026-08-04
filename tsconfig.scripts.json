@@ -4,5 +4,6 @@
     "rootDir": "scripts",
     "outDir": "dist-scripts"
   },
-  "include": ["scripts"]
+  "include": ["scripts"],
+  "exclude": ["scripts/eval-machines.ts", "scripts/eval-machines.test.ts"]
 }
